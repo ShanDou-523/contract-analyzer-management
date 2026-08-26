@@ -9,7 +9,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import DeclarativeBase, configure_mappers, sessionmaker
 
 from alembic import command
-from config import BASE_DIR, DATABASE_URL, ensure_runtime_dirs
+from config import BASE_DIR, DATABASE_URL, ensure_runtime_dirs, settings
 
 engine = create_engine(
     DATABASE_URL,
@@ -49,6 +49,7 @@ def run_migrations() -> None:
 def init_db() -> None:
     """Run migrations, legacy backfill, and built-in template seeding."""
     from services.analysis_template_service import ensure_builtin_templates
+    from services.domain_migration import migrate_legacy_data
     from services.secret_service import migrate_legacy_secrets
 
     run_migrations()
@@ -63,6 +64,11 @@ def init_db() -> None:
             )
         _backfill_document_templates(db)
         ensure_builtin_templates(db)
+        migrate_legacy_data(
+            db,
+            settings.resolved_upload_dir,
+            settings.resolved_data_dir / "migration_reports" / "stage2_legacy_migration.json",
+        )
     finally:
         db.close()
 

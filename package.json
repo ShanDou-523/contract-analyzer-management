@@ -10,7 +10,7 @@
     "build:preload": "node scripts/build-preload.mjs",
     "build": "npm run build:renderer && npm run build:main && npm run build:preload",
     "typecheck": "vue-tsc --noEmit",
-    "lint:python": "python_backend\\.venv\\Scripts\\python.exe -m ruff check python_backend/config.py python_backend/database.py python_backend/main.py python_backend/core python_backend/services/provider_health.py python_backend/services/secret_service.py python_backend/tests/test_stage1_foundation.py",
+    "lint:python": "python_backend\\.venv\\Scripts\\python.exe -m ruff check python_backend/config.py python_backend/database.py python_backend/main.py python_backend/core python_backend/models/contract.py python_backend/models/document.py python_backend/services/provider_health.py python_backend/services/secret_service.py python_backend/services/domain_migration.py python_backend/alembic python_backend/tests/test_stage1_foundation.py python_backend/tests/test_stage2_migration.py",
     "format:python": "python_backend\\.venv\\Scripts\\python.exe -m ruff format python_backend",
     "test:python": "python_backend\\.venv\\Scripts\\python.exe -m pytest python_backend/tests",
     "dev": "npm run build:main && npm run build:preload && concurrently \"npm run dev:renderer\" \"electron .\"",

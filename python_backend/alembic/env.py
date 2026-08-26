@@ -8,7 +8,10 @@ from sqlalchemy import create_engine, pool
 
 from alembic import context
 from database import Base
-from models import document  # noqa: F401 - register ORM models
+from models import (
+    contract,  # noqa: F401 - register stage 2 domain models
+    document,  # noqa: F401 - register ORM models
+)
 
 config = context.config
 if config.config_file_name is not None:

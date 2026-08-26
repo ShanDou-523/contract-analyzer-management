@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, String, Integer, Text, DateTime, ForeignKey
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 
 from database import Base
@@ -68,6 +68,8 @@ class AnalysisResult(Base):
     prompt_text = Column(Text, nullable=False)
     response_text = Column(Text, nullable=True)
     tokens_used = Column(Integer, nullable=True)
+    # Kept as a nullable compatibility link; the domain model owns the run FK.
+    analysis_run_id = Column(String(36), nullable=True, index=True)
     template_id = Column(String(36), nullable=True)
     template_name = Column(String(100), nullable=True)
     template_version = Column(Integer, nullable=True)
