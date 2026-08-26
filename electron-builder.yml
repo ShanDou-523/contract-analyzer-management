@@ -1,0 +1,16 @@
+appId: com.contractanalyzer.app
+productName: 合同分析系统
+directories:
+  output: release
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: python_backend/dist/main
+    to: python_backend/main
+win:
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

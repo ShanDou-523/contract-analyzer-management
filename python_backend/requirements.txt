@@ -1,0 +1,10 @@
+fastapi
+openai
+openpyxl
+pillow
+pymupdf
+python-dotenv
+python-multipart
+requests
+sqlalchemy
+uvicorn

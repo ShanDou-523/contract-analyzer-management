@@ -1,0 +1,38 @@
+{
+  "name": "contract-analyzer",
+  "version": "1.0.0",
+  "description": "PDF Contract OCR + DeepSeek Analysis Desktop App",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev:renderer": "vite --config vite.renderer.config.ts",
+    "build:renderer": "vite build --config vite.renderer.config.ts",
+    "build:main": "node scripts/build-main.mjs",
+    "build:preload": "node scripts/build-preload.mjs",
+    "build": "npm run build:renderer && npm run build:main && npm run build:preload",
+    "dev": "npm run build:main && npm run build:preload && concurrently \"npm run dev:renderer\" \"electron .\"",
+    "start": "electron .",
+    "pack": "npm run build && electron-builder --win"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.7.0",
+    "element-plus": "^2.8.0",
+    "pinia": "^2.2.0",
+    "vue": "^3.5.0",
+    "vue-router": "^4.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.1.0",
+    "concurrently": "^8.0.0",
+    "electron": "^32.2.0",
+    "electron-builder": "^25.0.0",
+    "esbuild": "^0.23.0",
+    "sass": "^1.78.0",
+    "typescript": "~5.6.0",
+    "vite": "^5.4.0",
+    "vue-tsc": "^2.1.0"
+  }
+}

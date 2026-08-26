@@ -1,0 +1,29 @@
+# Dependencies and build output
+node_modules/
+out/
+release/
+production_bundle/
+
+# Reverse-engineering evidence and generated bundles
+recovery_evidence/
+src/renderer-recovered/
+
+# Python environments and caches
+python_backend/.venv/
+__pycache__/
+python_backend/**/__pycache__/
+*.py[cod]
+
+# Local runtime state and secrets
+python_backend/.env
+python_backend/*.db
+python_backend/*.db-*
+python_backend/*.bak
+python_backend/uploads/
+
+# Local tooling files
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.cache/
+*.log
