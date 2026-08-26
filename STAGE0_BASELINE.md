@@ -8,6 +8,9 @@
 
 - 源码目录：`D:\工具\合同分析系统_逆向源码`
 - Git：源码目录初始不是 Git 仓库；本阶段初始化本地仓库并创建基线提交。
+- 本地分支：`master`
+- 基线提交：`18be90e chore: establish stage 0 baseline`、`8852ac3 test: document stage 0 baseline and offline smoke checks`
+- 远程仓库：未配置；推送前需要提供 GitHub/Gitee 仓库 URL 和认证方式。
 - Node.js：24.14.0
 - npm：11.9.0
 - Python 虚拟环境：3.11.15
