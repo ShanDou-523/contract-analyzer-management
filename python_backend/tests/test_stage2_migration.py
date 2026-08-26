@@ -9,9 +9,23 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from database import Base
-from models.contract import AnalysisRun, Contract, ContractFile, FileVersion
+from models.contract import AnalysisRun, Contract, ContractFile, FileVersion, Organization, User
 from models.document import AnalysisResult, AnalysisTemplate, Document
 from services.domain_migration import migrate_legacy_data
+
+
+def test_empty_legacy_migration_does_not_create_placeholder_identity(tmp_path: Path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'empty.db'}")
+    Base.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+
+    report = migrate_legacy_data(session, tmp_path / "uploads")
+
+    assert report["source_counts"]["documents"] == 0
+    assert session.query(Organization).count() == 0
+    assert session.query(User).count() == 0
+    session.close()
+    engine.dispose()
 
 
 def test_legacy_migration_is_idempotent_and_keeps_mapping(tmp_path: Path):

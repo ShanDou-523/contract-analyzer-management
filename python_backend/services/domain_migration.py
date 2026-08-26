@@ -289,8 +289,7 @@ def migrate_legacy_data(
     report_path: Path | None = None,
 ) -> dict:
     """Migrate legacy rows once and return an auditable reconciliation report."""
-    organization, migration_user = _get_or_create_legacy_identity(db)
-    template_version_ids = _migrate_template_versions(db, migration_user)
+    documents = db.query(Document).order_by(Document.created_at.asc(), Document.id.asc()).all()
     report = {
         "migration": "stage2_legacy_document_to_contract",
         "generated_at": _now().isoformat(),
@@ -306,7 +305,22 @@ def migrate_legacy_data(
         "contract_mappings": [],
         "analysis_run_mappings": [],
     }
-    for document in db.query(Document).order_by(Document.created_at.asc(), Document.id.asc()).all():
+    if not documents:
+        report["target_counts"] = {
+            "organizations": db.query(Organization).count(),
+            "users": db.query(User).count(),
+            "contracts": db.query(Contract).count(),
+            "contract_files": db.query(ContractFile).count(),
+            "file_versions": db.query(FileVersion).count(),
+            "analysis_template_versions": db.query(AnalysisTemplateVersion).count(),
+            "analysis_runs": db.query(AnalysisRun).count(),
+        }
+        _write_report(report, report_path)
+        return report
+
+    organization, migration_user = _get_or_create_legacy_identity(db)
+    template_version_ids = _migrate_template_versions(db, migration_user)
+    for document in documents:
         results = (
             db.query(AnalysisResult)
             .filter(AnalysisResult.document_id == document.id)
