@@ -1,15 +1,19 @@
-"""Database engine and session factory."""
+"""Database engine, sessions, and Alembic-backed initialization."""
 
-import shutil
+from __future__ import annotations
 
+from pathlib import Path
+
+from alembic.config import Config
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, configure_mappers, sessionmaker
 
-from config import DATABASE_URL, DB_PATH
+from alembic import command
+from config import BASE_DIR, DATABASE_URL, ensure_runtime_dirs
 
 engine = create_engine(
     DATABASE_URL,
-    connect_args={"check_same_thread": False},
+    connect_args={"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {},
     echo=False,
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -28,91 +32,61 @@ def get_db():
         db.close()
 
 
-def init_db():
-    """Create tables, apply additive migrations, and seed built-in templates."""
-    from models.document import AnalysisResult, AnalysisTemplate, Document, Setting
-    from sqlalchemy.orm import configure_mappers
+def _alembic_config() -> Config:
+    config = Config(str(Path(BASE_DIR) / "alembic.ini"))
+    config.set_main_option("script_location", str(Path(BASE_DIR) / "alembic"))
+    config.set_main_option("sqlalchemy.url", DATABASE_URL.replace("%", "%%"))
+    return config
 
+
+def run_migrations() -> None:
+    """Upgrade the configured database to the current schema revision."""
+    ensure_runtime_dirs()
     configure_mappers()
-    Base.metadata.create_all(bind=engine)
+    command.upgrade(_alembic_config(), "head")
 
-    migration_columns = {
-        "template_id": "VARCHAR(36)",
-        "template_name": "VARCHAR(100)",
-        "template_version": "INTEGER",
-        "fields_snapshot_json": "TEXT",
-    }
-    document_columns = {
-        "analysis_template_id": "VARCHAR(36)",
-        "analysis_template_name": "VARCHAR(100)",
-        "analysis_template_version": "INTEGER",
-    }
-    with engine.begin() as connection:
-        existing_results = {
-            row[1]
-            for row in connection.exec_driver_sql(
-                "PRAGMA table_info(analysis_results)"
-            ).fetchall()
-        }
-        existing_documents = {
-            row[1]
-            for row in connection.exec_driver_sql(
-                "PRAGMA table_info(documents)"
-            ).fetchall()
-        }
-        missing = [
-            *(name for name in migration_columns if name not in existing_results),
-            *(name for name in document_columns if name not in existing_documents),
-        ]
-        if missing and DB_PATH.exists():
-            backup_path = DB_PATH.with_name(f"{DB_PATH.stem}.pre_template_assignment.bak")
-            if not backup_path.exists():
-                shutil.copy2(DB_PATH, backup_path)
-        for name in migration_columns:
-            if name not in existing_results:
-                connection.exec_driver_sql(
-                    f"ALTER TABLE analysis_results ADD COLUMN {name} {migration_columns[name]}"
-                )
-        for name in document_columns:
-            if name not in existing_documents:
-                connection.exec_driver_sql(
-                    f"ALTER TABLE documents ADD COLUMN {name} {document_columns[name]}"
-                )
-        connection.exec_driver_sql(
-            "CREATE INDEX IF NOT EXISTS ix_documents_analysis_template_id "
-            "ON documents (analysis_template_id)"
-        )
 
-    db = SessionLocal()
-    try:
-        _backfill_document_templates(db)
-    finally:
-        db.close()
-
+def init_db() -> None:
+    """Run migrations, legacy backfill, and built-in template seeding."""
     from services.analysis_template_service import ensure_builtin_templates
+    from services.secret_service import migrate_legacy_secrets
 
+    run_migrations()
     db = SessionLocal()
     try:
+        migrated_secrets = migrate_legacy_secrets(db)
+        if migrated_secrets:
+            import logging
+
+            logging.getLogger("contract_analyzer.database").info(
+                "Migrated %s legacy plaintext secret(s)", migrated_secrets
+            )
+        _backfill_document_templates(db)
         ensure_builtin_templates(db)
     finally:
         db.close()
 
 
-def _backfill_document_templates(db):
+def _backfill_document_templates(db) -> None:
     """Associate legacy documents with the latest successful analysis template."""
     from models.document import AnalysisResult, AnalysisTemplate, Document
 
     documents = db.query(Document).filter(Document.analysis_template_id.is_(None)).all()
     changed = False
     for document in documents:
-        result = db.query(AnalysisResult).filter(
-            AnalysisResult.document_id == document.id,
-            AnalysisResult.template_id.isnot(None),
-        ).order_by(AnalysisResult.created_at.desc()).first()
+        result = (
+            db.query(AnalysisResult)
+            .filter(
+                AnalysisResult.document_id == document.id,
+                AnalysisResult.template_id.isnot(None),
+            )
+            .order_by(AnalysisResult.created_at.desc())
+            .first()
+        )
         if result:
-            template_exists = db.query(AnalysisTemplate).filter(
-                AnalysisTemplate.id == result.template_id
-            ).first()
+            template_exists = (
+                db.query(AnalysisTemplate).filter(AnalysisTemplate.id == result.template_id).first()
+            )
             document.analysis_template_id = result.template_id if template_exists else None
             document.analysis_template_name = (
                 result.template_name

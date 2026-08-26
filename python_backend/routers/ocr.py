@@ -1,6 +1,7 @@
 """OCR processing router."""
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from schemas.analysis import OcrProcessResponse
 from services.ocr_service import get_ocr_service
 
 router = APIRouter(prefix="/api/ocr", tags=["ocr"])
+logger = logging.getLogger("contract_analyzer.ocr")
 
 
 @router.post("/{doc_id}/process", response_model=OcrProcessResponse)
@@ -48,8 +50,9 @@ def process_ocr(doc_id: str, db: Session = Depends(get_db)):
             text_length=text_length,
             text_preview=text_preview,
         )
-    except Exception as e:
+    except Exception as exc:
+        logger.exception("OCR processing failed document_id=%s", doc_id)
         document.status = "error"
-        document.error_message = str(e)
+        document.error_message = str(exc)
         db.commit()
-        raise HTTPException(status_code=500, detail=f"OCR处理失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="OCR处理失败，请稍后重试") from exc

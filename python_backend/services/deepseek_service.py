@@ -20,11 +20,11 @@ from services.analysis_template_service import decode_fields
 def _get_deepseek_key() -> str:
     """Get DeepSeek API key from DB first, fallback to env."""
     from database import SessionLocal
-    from models.document import Setting
+    from services.secret_service import get_secret_setting
 
     db = SessionLocal()
     try:
-        key = Setting.get(db, "deepseek_api_key") or os.getenv("DEEPSEEK_API_KEY", "")
+        key = get_secret_setting(db, "deepseek_api_key") or os.getenv("DEEPSEEK_API_KEY", "")
         return key
     finally:
         db.close()

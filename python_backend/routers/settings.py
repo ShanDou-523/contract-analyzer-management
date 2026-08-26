@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from database import get_db
-from models.document import Setting
+from services.secret_service import get_secret_setting, set_secret_setting
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -25,9 +25,9 @@ class SettingsUpdate(BaseModel):
 @router.get("", response_model=SettingsOut)
 def get_settings(db: Session = Depends(get_db)):
     """Get current API key settings (masked)."""
-    deepseek = Setting.get(db, "deepseek_api_key")
-    baidu_ak = Setting.get(db, "baidu_ocr_api_key")
-    baidu_sk = Setting.get(db, "baidu_ocr_secret_key")
+    deepseek = get_secret_setting(db, "deepseek_api_key")
+    baidu_ak = get_secret_setting(db, "baidu_ocr_api_key")
+    baidu_sk = get_secret_setting(db, "baidu_ocr_secret_key")
 
     import os
 
@@ -55,12 +55,12 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     """Update API keys. Only non-empty values are saved."""
     updated = []
     if data.deepseek_api_key.strip():
-        Setting.set(db, "deepseek_api_key", data.deepseek_api_key.strip())
+        set_secret_setting(db, "deepseek_api_key", data.deepseek_api_key.strip())
         updated.append("deepseek_api_key")
     if data.baidu_ocr_api_key.strip():
-        Setting.set(db, "baidu_ocr_api_key", data.baidu_ocr_api_key.strip())
+        set_secret_setting(db, "baidu_ocr_api_key", data.baidu_ocr_api_key.strip())
         updated.append("baidu_ocr_api_key")
     if data.baidu_ocr_secret_key.strip():
-        Setting.set(db, "baidu_ocr_secret_key", data.baidu_ocr_secret_key.strip())
+        set_secret_setting(db, "baidu_ocr_secret_key", data.baidu_ocr_secret_key.strip())
         updated.append("baidu_ocr_secret_key")
     return {"message": f"已更新 {len(updated)} 项设置", "updated": updated}

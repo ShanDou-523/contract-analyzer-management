@@ -1,37 +1,167 @@
-"""Application configuration."""
+"""Typed application configuration with safe local defaults."""
+
+from __future__ import annotations
 
 import os
 import sys
+from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from dotenv import load_dotenv
-
-load_dotenv()
+from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if getattr(sys, "frozen", False):
     BASE_DIR = Path(sys._MEIPASS)
-    USER_DATA_DIR = Path(os.getenv("APPDATA", os.path.expanduser("~"))) / "ContractAnalyzer"
 else:
-    BASE_DIR = Path(__file__).parent
-    USER_DATA_DIR = BASE_DIR
+    BASE_DIR = Path(__file__).resolve().parent
 
-USER_DATA_DIR.mkdir(exist_ok=True)
-UPLOAD_DIR = USER_DATA_DIR / "uploads"
-UPLOAD_DIR.mkdir(exist_ok=True)
+load_dotenv()
+
+
+class AppSettings(BaseSettings):
+    """Runtime settings loaded from environment variables and ``.env``."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    environment: Literal["local", "staging", "production"] = Field(
+        default="local",
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_ENVIRONMENT"),
+    )
+    data_dir: Path | None = Field(
+        default=None, validation_alias=AliasChoices("CONTRACT_ANALYZER_DATA_DIR")
+    )
+    database_url: str | None = Field(
+        default=None, validation_alias=AliasChoices("CONTRACT_ANALYZER_DATABASE_URL")
+    )
+    upload_dir: Path | None = Field(
+        default=None, validation_alias=AliasChoices("CONTRACT_ANALYZER_UPLOAD_DIR")
+    )
+    server_host: str = Field(
+        default="127.0.0.1", validation_alias=AliasChoices("CONTRACT_ANALYZER_HOST")
+    )
+    server_port: int = Field(default=5768, validation_alias=AliasChoices("CONTRACT_ANALYZER_PORT"))
+    cors_origins: str = Field(
+        default="http://localhost:5173,http://127.0.0.1:5173,null",
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_CORS_ORIGINS"),
+    )
+    secret_key: str = Field(
+        default="", validation_alias=AliasChoices("CONTRACT_ANALYZER_SECRET_KEY")
+    )
+    redis_url: str = Field(default="", validation_alias=AliasChoices("CONTRACT_ANALYZER_REDIS_URL"))
+    ocr_dpi: int = Field(
+        default=300,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_OCR_DPI", "OCR_DPI"),
+    )
+    ocr_confidence_threshold: float = Field(
+        default=0.5,
+        validation_alias=AliasChoices(
+            "CONTRACT_ANALYZER_OCR_CONFIDENCE_THRESHOLD", "OCR_CONFIDENCE_THRESHOLD"
+        ),
+    )
+    max_file_size_mb: int = Field(
+        default=50,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_MAX_FILE_SIZE_MB", "MAX_FILE_SIZE_MB"),
+    )
+    max_pdf_pages: int = Field(
+        default=200,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_MAX_PDF_PAGES", "MAX_PDF_PAGES"),
+    )
+    deepseek_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("DEEPSEEK_API_KEY", "CONTRACT_ANALYZER_DEEPSEEK_API_KEY"),
+    )
+    deepseek_base_url: str = Field(
+        default="https://api.deepseek.com",
+        validation_alias=AliasChoices("DEEPSEEK_BASE_URL", "CONTRACT_ANALYZER_DEEPSEEK_BASE_URL"),
+    )
+    deepseek_model: str = Field(
+        default="deepseek-chat",
+        validation_alias=AliasChoices("DEEPSEEK_MODEL", "CONTRACT_ANALYZER_DEEPSEEK_MODEL"),
+    )
+    deepseek_timeout_seconds: int = Field(
+        default=120,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_DEEPSEEK_TIMEOUT_SECONDS"),
+    )
+    deepseek_temperature: float = Field(
+        default=0.3,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_DEEPSEEK_TEMPERATURE"),
+    )
+    baidu_ocr_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("BAIDU_OCR_API_KEY", "CONTRACT_ANALYZER_BAIDU_OCR_API_KEY"),
+    )
+    baidu_ocr_secret_key: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "BAIDU_OCR_SECRET_KEY", "CONTRACT_ANALYZER_BAIDU_OCR_SECRET_KEY"
+        ),
+    )
+
+    @property
+    def resolved_data_dir(self) -> Path:
+        if self.data_dir:
+            return self.data_dir.expanduser().resolve()
+        if getattr(sys, "frozen", False):
+            return Path(os.getenv("APPDATA", os.path.expanduser("~"))) / "ContractAnalyzer"
+        return BASE_DIR
+
+    @property
+    def resolved_upload_dir(self) -> Path:
+        return (self.upload_dir or self.resolved_data_dir / "uploads").expanduser().resolve()
+
+    @property
+    def resolved_database_url(self) -> str:
+        if self.database_url:
+            return self.database_url
+        return f"sqlite:///{self.resolved_data_dir / 'contract_analyzer.db'}"
+
+    @property
+    def max_file_size_bytes(self) -> int:
+        return self.max_file_size_mb * 1024 * 1024
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
+    @property
+    def secret_key_path(self) -> Path:
+        return self.resolved_data_dir / ".contract_analyzer_secret.key"
+
+
+@lru_cache(maxsize=1)
+def get_settings() -> AppSettings:
+    return AppSettings()
+
+
+settings = get_settings()
+USER_DATA_DIR = settings.resolved_data_dir
+UPLOAD_DIR = settings.resolved_upload_dir
 DB_PATH = USER_DATA_DIR / "contract_analyzer.db"
-DATABASE_URL = f"sqlite:///{DB_PATH}"
+DATABASE_URL = settings.resolved_database_url
+SERVER_HOST = settings.server_host
+SERVER_PORT = settings.server_port
 
-SERVER_HOST = "127.0.0.1"
-SERVER_PORT = int(os.getenv("CONTRACT_ANALYZER_PORT", "5768"))
+OCR_DPI = settings.ocr_dpi
+OCR_CONFIDENCE_THRESHOLD = settings.ocr_confidence_threshold
+MAX_FILE_SIZE_MB = settings.max_file_size_mb
+MAX_FILE_SIZE_BYTES = settings.max_file_size_bytes
+MAX_PDF_PAGES = settings.max_pdf_pages
 
-OCR_DPI = 300
-OCR_CONFIDENCE_THRESHOLD = 0.5
-MAX_FILE_SIZE_MB = 50
-MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-MAX_PDF_PAGES = 200
+DEEPSEEK_API_KEY = settings.deepseek_api_key or os.getenv("DEEPSEEK_API_KEY", "")
+DEEPSEEK_BASE_URL = settings.deepseek_base_url
+DEEPSEEK_MODEL = settings.deepseek_model
+DEEPSEEK_TIMEOUT_SECONDS = settings.deepseek_timeout_seconds
+DEEPSEEK_TEMPERATURE = settings.deepseek_temperature
 
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
-DEEPSEEK_BASE_URL = "https://api.deepseek.com"
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-DEEPSEEK_TIMEOUT_SECONDS = 120
-DEEPSEEK_TEMPERATURE = 0.3
+
+def ensure_runtime_dirs() -> None:
+    """Create runtime directories explicitly during application startup."""
+    USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

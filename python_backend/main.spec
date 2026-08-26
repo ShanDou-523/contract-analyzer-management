@@ -1,6 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-datas = [("prompts", "prompts")]
+datas = [
+    ("prompts", "prompts"),
+    ("alembic.ini", "."),
+    ("alembic", "alembic"),
+]
 
 a = Analysis(
     ["main.py"],

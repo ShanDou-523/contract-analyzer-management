@@ -1,4 +1,5 @@
 .env
+.contract_analyzer_secret.key
 __pycache__/
 *.py[cod]
 *.db

@@ -1,6 +1,7 @@
 """DeepSeek analysis router."""
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -13,6 +14,7 @@ from services.deepseek_service import get_deepseek_service
 from services.analysis_template_service import decode_fields, get_template_for_analysis
 
 router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+logger = logging.getLogger("contract_analyzer.analysis")
 
 
 @router.post("/{doc_id}/analyze", response_model=AnalysisResponse)
@@ -93,10 +95,11 @@ def analyze_document(doc_id: str, data: AnalyzeRequest | None = None, db: Sessio
             status=document.status,
             results=result_outs,
         )
-    except Exception as e:
+    except Exception as exc:
+        logger.exception("AI analysis failed document_id=%s", doc_id)
         db.rollback()
         document = db.query(Document).filter(Document.id == doc_id).first()
         document.status = "done" if had_results else "error"
-        document.error_message = str(e)
+        document.error_message = str(exc)
         db.commit()
-        raise HTTPException(status_code=500, detail=f"AI分析失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="AI分析失败，请稍后重试") from exc

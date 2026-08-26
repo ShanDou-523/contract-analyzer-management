@@ -19,12 +19,23 @@
 cd python_backend
 py -3.11 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 cd ..
 npm install
 npm run dev
 ```
 
 应用开发模式会由 Electron 自动启动 `python_backend\main.py`。
+
+阶段 1 基础检查：
+
+```powershell
+npm run typecheck
+npm run lint:python
+npm run test:python
+```
+
+后端配置示例见 `python_backend/.env.example`，阶段 1 的迁移、密钥和验收说明见 `STAGE1_ENGINEERING_BASELINE.md`。
 
 ## 构建
 

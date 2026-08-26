@@ -3,7 +3,6 @@
 import io
 import os
 import base64
-from pathlib import Path
 from typing import Optional
 
 import fitz
@@ -18,15 +17,13 @@ BAIDU_OCR_URL = "https://aip.baidubce.com/rest/2.0/ocr/v1/accurate_basic"
 
 def _get_baidu_keys():
     """Get Baidu OCR keys from DB, fallback to env."""
-    import os
-
     from database import SessionLocal
-    from models.document import Setting
+    from services.secret_service import get_secret_setting
 
     db = SessionLocal()
     try:
-        ak = Setting.get(db, "baidu_ocr_api_key") or os.getenv("BAIDU_OCR_API_KEY", "")
-        sk = Setting.get(db, "baidu_ocr_secret_key") or os.getenv("BAIDU_OCR_SECRET_KEY", "")
+        ak = get_secret_setting(db, "baidu_ocr_api_key") or os.getenv("BAIDU_OCR_API_KEY", "")
+        sk = get_secret_setting(db, "baidu_ocr_secret_key") or os.getenv("BAIDU_OCR_SECRET_KEY", "")
         return ak, sk
     finally:
         db.close()
@@ -115,7 +112,7 @@ class OcrService:
                 pages_detail.append(
                     {
                         "page": page_num + 1,
-                        "text": "\n".join([l["text"] for l in page_lines]),
+                        "text": "\n".join([line["text"] for line in page_lines]),
                         "line_count": len(page_lines),
                         "avg_confidence": 1.0,
                         "lines": page_lines,
