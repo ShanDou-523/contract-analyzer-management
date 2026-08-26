@@ -45,6 +45,8 @@ def test_empty_database_can_upgrade_to_baseline(tmp_path: Path):
     tables = inspect(engine).get_table_names()
     assert "alembic_version" in tables
     assert "documents" in tables
+    assert "contracts" in tables
+    assert "analysis_runs" in tables
     engine.dispose()
 
 

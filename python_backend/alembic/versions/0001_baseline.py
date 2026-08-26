@@ -14,7 +14,12 @@ depends_on = None
 
 def upgrade() -> None:
     bind = op.get_bind()
-    Base.metadata.create_all(bind=bind)
+    legacy_tables = [
+        Base.metadata.tables[name]
+        for name in ("documents", "analysis_results", "analysis_templates", "settings")
+        if name in Base.metadata.tables
+    ]
+    Base.metadata.create_all(bind=bind, tables=legacy_tables)
 
     # The recovered application may have a database created before template
     # assignment was added. Add those columns without dropping any history.

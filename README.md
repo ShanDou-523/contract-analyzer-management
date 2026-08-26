@@ -37,6 +37,8 @@ npm run test:python
 
 后端配置示例见 `python_backend/.env.example`，阶段 1 的迁移、密钥和验收说明见 `STAGE1_ENGINEERING_BASELINE.md`。
 
+阶段 2 的合同领域模型、历史数据迁移规则和对账结果见 `STAGE2_DOMAIN_MIGRATION.md`。
+
 ## 构建
 
 ```powershell
