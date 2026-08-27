@@ -161,6 +161,10 @@ class Contract(Base):
     analysis_runs = relationship(
         "AnalysisRun", back_populates="contract", cascade="all, delete-orphan"
     )
+    party_links = relationship("ContractParty", back_populates="contract", cascade="all, delete-orphan")
+    fulfillment_tasks = relationship(
+        "FulfillmentTask", back_populates="contract", cascade="all, delete-orphan"
+    )
 
 
 class ContractFile(Base):
@@ -225,6 +229,103 @@ class ContractImportJob(Base):
     validated_at = Column(DateTime(timezone=True), nullable=True)
     confirmed_at = Column(DateTime(timezone=True), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+
+class Party(Base):
+    """Organization-scoped legal entity used by one or more contracts."""
+
+    __tablename__ = "parties"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "party_type", "name", name="uq_party_org_type_name"),
+        Index("ix_parties_organization_name", "organization_id", "name"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    party_type = Column(String(20), nullable=False, default="other", index=True)
+    name = Column(String(512), nullable=False)
+    tax_no = Column(String(100), nullable=True)
+    address = Column(String(512), nullable=True)
+    phone = Column(String(100), nullable=True)
+    email = Column(String(320), nullable=True)
+    status = Column(String(20), nullable=False, default="active", index=True)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+
+    contract_links = relationship("ContractParty", back_populates="party", cascade="all, delete-orphan")
+    contacts = relationship("Contact", back_populates="party", cascade="all, delete-orphan")
+
+
+class ContractParty(Base):
+    """Role-specific association between a contract and a party."""
+
+    __tablename__ = "contract_parties"
+    __table_args__ = (
+        UniqueConstraint("contract_id", "party_id", "role", name="uq_contract_party_role"),
+        Index("ix_contract_parties_contract_role", "contract_id", "role"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    contract_id = Column(String(36), ForeignKey("contracts.id"), nullable=False, index=True)
+    party_id = Column(String(36), ForeignKey("parties.id"), nullable=False, index=True)
+    role = Column(String(20), nullable=False, default="other", index=True)
+    notes = Column(Text, nullable=False, default="")
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+    contract = relationship("Contract", back_populates="party_links")
+    party = relationship("Party", back_populates="contract_links")
+
+
+class Contact(Base):
+    """A contact person belonging to an organization party."""
+
+    __tablename__ = "contacts"
+    __table_args__ = (Index("ix_contacts_organization_name", "organization_id", "name"),)
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    party_id = Column(String(36), ForeignKey("parties.id"), nullable=False, index=True)
+    name = Column(String(200), nullable=False)
+    title = Column(String(200), nullable=True)
+    phone = Column(String(100), nullable=True)
+    email = Column(String(320), nullable=True)
+    is_primary = Column(Boolean, nullable=False, default=False, index=True)
+    status = Column(String(20), nullable=False, default="active", index=True)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+
+    party = relationship("Party", back_populates="contacts")
+
+
+class FulfillmentTask(Base):
+    """Contract obligation with a constrained status transition."""
+
+    __tablename__ = "fulfillment_tasks"
+    __table_args__ = (
+        Index("ix_fulfillment_tasks_org_due", "organization_id", "due_at"),
+        Index("ix_fulfillment_tasks_contract_status", "contract_id", "status"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    contract_id = Column(String(36), ForeignKey("contracts.id"), nullable=False, index=True)
+    title = Column(String(300), nullable=False)
+    description = Column(Text, nullable=False, default="")
+    task_type = Column(String(50), nullable=False, default="other", index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    priority = Column(String(20), nullable=False, default="medium", index=True)
+    assignee_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    due_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    remind_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    completed_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    updated_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+
+    contract = relationship("Contract", back_populates="fulfillment_tasks")
 
 
 class AnalysisTemplateVersion(Base):

@@ -43,6 +43,8 @@ npm run test:python
 
 阶段 4 的合同台账、文件版本、回收站和导入流程见 `STAGE4_CONTRACT_LEDGER.md`。
 
+阶段 5 的合同详情、主体联系人关联、履约任务状态机和审计说明见 `STAGE5_CONTRACT_DETAIL.md`。
+
 ## 构建
 
 ```powershell

@@ -167,3 +167,87 @@ export interface ContractImportConfirm {
   created_count: number
   contract_ids: string[]
 }
+
+export type PartyType = 'party_a' | 'party_b' | 'other'
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'cancelled'
+
+export interface Party {
+  id: string
+  organization_id: string
+  party_type: PartyType
+  name: string
+  tax_no: string | null
+  address: string | null
+  phone: string | null
+  email: string | null
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export interface Contact {
+  id: string
+  organization_id: string
+  party_id: string
+  name: string
+  title: string | null
+  phone: string | null
+  email: string | null
+  is_primary: boolean
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export interface FulfillmentAssignee {
+  id: string
+  display_name: string
+}
+
+export interface ContractPartyLink {
+  id: string
+  contract_id: string
+  role: PartyType
+  notes: string
+  party: Party
+  contacts: Contact[]
+}
+
+export interface FulfillmentTask {
+  id: string
+  organization_id: string
+  contract_id: string
+  title: string
+  description: string
+  task_type: string
+  status: TaskStatus
+  priority: 'low' | 'medium' | 'high' | 'critical'
+  assignee_id: string | null
+  due_at: string
+  remind_at: string | null
+  completed_at: string | null
+  completed_by: string | null
+  created_by: string
+  updated_by: string
+  created_at: string
+  updated_at: string
+  is_overdue: boolean
+}
+
+export interface ContractOperation {
+  id: string
+  action: string
+  resource_type: string | null
+  resource_id: string | null
+  details: Record<string, unknown>
+  user_id: string | null
+  created_at: string
+}
+
+export interface ContractDetail {
+  contract: Contract
+  files: ContractFile[]
+  parties: ContractPartyLink[]
+  tasks: FulfillmentTask[]
+  operations: ContractOperation[]
+}

@@ -293,6 +293,7 @@ onMounted(loadContracts)
         <el-table-column label="操作" width="260" fixed="right">
           <template #default="{ row }">
             <template v-if="mode === 'active'">
+              <el-button text type="primary" @click="$router.push(`/contracts/${row.id}`)">详情</el-button>
               <el-button text type="primary" :icon="FolderOpened" @click="openFiles(row)">文件</el-button>
               <el-button text type="danger" @click="moveToRecycle(row)">移入回收站</el-button>
             </template>

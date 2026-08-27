@@ -14,6 +14,13 @@ import type {
   ContractImportConfirm,
   ContractImportPreview,
   PagedContracts,
+  Contact,
+  ContractDetail,
+  ContractOperation,
+  ContractPartyLink,
+  FulfillmentAssignee,
+  FulfillmentTask,
+  Party,
 } from '../types'
 
 let api: AxiosInstance | null = null
@@ -199,6 +206,81 @@ export async function validateContractImport(jobId: string): Promise<ContractImp
 
 export async function confirmContractImport(jobId: string): Promise<ContractImportConfirm> {
   const { data } = await (await client()).post(`/api/v1/contracts/imports/${jobId}/confirm`)
+  return data
+}
+
+export async function getContractDetail(id: string): Promise<ContractDetail> {
+  const { data } = await (await client()).get(`/api/v1/contracts/${id}/detail`)
+  return data
+}
+
+export async function listFulfillmentAssignees(): Promise<FulfillmentAssignee[]> {
+  const { data } = await (await client()).get('/api/v1/fulfillment-assignees')
+  return data
+}
+
+export async function listParties(params: { party_type?: string; search?: string } = {}): Promise<Party[]> {
+  const { data } = await (await client()).get('/api/v1/parties', { params })
+  return data
+}
+
+export async function createParty(payload: {
+  name: string
+  party_type: 'party_a' | 'party_b' | 'other'
+  tax_no?: string
+  address?: string
+  phone?: string
+  email?: string
+}): Promise<Party> {
+  const { data } = await (await client()).post('/api/v1/parties', payload)
+  return data
+}
+
+export async function linkContractParty(contractId: string, payload: { party_id: string; role: string; notes?: string }): Promise<ContractPartyLink> {
+  const { data } = await (await client()).post(`/api/v1/contracts/${contractId}/parties`, payload)
+  return data
+}
+
+export async function unlinkContractParty(contractId: string, linkId: string) {
+  await (await client()).delete(`/api/v1/contracts/${contractId}/parties/${linkId}`)
+}
+
+export async function createPartyContact(partyId: string, payload: {
+  name: string
+  title?: string
+  phone?: string
+  email?: string
+  is_primary?: boolean
+}): Promise<Contact> {
+  const { data } = await (await client()).post(`/api/v1/parties/${partyId}/contacts`, payload)
+  return data
+}
+
+export async function updatePartyContact(partyId: string, contactId: string, payload: Partial<Contact>): Promise<Contact> {
+  const { data } = await (await client()).put(`/api/v1/parties/${partyId}/contacts/${contactId}`, payload)
+  return data
+}
+
+export async function createFulfillmentTask(contractId: string, payload: {
+  title: string
+  description?: string
+  task_type?: string
+  priority?: string
+  assignee_id?: string
+  due_at: string
+  remind_at?: string
+}): Promise<FulfillmentTask> {
+  const { data } = await (await client()).post(`/api/v1/contracts/${contractId}/tasks`, payload)
+  return data
+}
+
+export async function updateFulfillmentTask(contractId: string, taskId: string, payload: Partial<FulfillmentTask>): Promise<FulfillmentTask> {
+  const { data } = await (await client()).patch(`/api/v1/contracts/${contractId}/tasks/${taskId}`, payload)
+  return data
+}
+
+export async function listContractOperations(contractId: string): Promise<ContractOperation[]> {
+  const { data } = await (await client()).get(`/api/v1/contracts/${contractId}/operations`)
   return data
 }
 
