@@ -5,20 +5,51 @@ import uuid
 
 from models.document import AnalysisTemplate
 
-
 MAINTENANCE_FIELDS = [
     {"key": "contract_name", "label": "合同名称", "instruction": "提取合同标题或正式名称"},
     {"key": "contract_no", "label": "合同编号", "instruction": "提取合同中明确记载的编号"},
-    {"key": "contract_type", "label": "合同类型", "instruction": "判断属于清洗、维修、维保、设备安装或混合合同"},
+    {
+        "key": "contract_type",
+        "label": "合同类型",
+        "instruction": "判断属于清洗、维修、维保、设备安装或混合合同",
+    },
     {"key": "parties", "label": "合同主体", "instruction": "提取甲方、乙方名称，并明确对应角色"},
     {"key": "project_info", "label": "项目信息", "instruction": "提取项目名称和项目地点"},
-    {"key": "service_scope", "label": "服务范围", "instruction": "提取服务对象、主要工作内容以及设备或系统范围"},
-    {"key": "contract_period", "label": "合同期限", "instruction": "提取开始日期、结束日期或施工工期"},
-    {"key": "contract_amount", "label": "合同金额", "instruction": "提取总金额、计价方式、是否含税及税率"},
-    {"key": "payment_terms", "label": "付款条款", "instruction": "提取付款比例、付款节点、付款期限和发票要求"},
-    {"key": "acceptance_terms", "label": "验收条款", "instruction": "提取验收标准、验收条件和验收资料"},
-    {"key": "warranty_terms", "label": "质保与售后", "instruction": "提取质保期限、起算时间和售后响应要求"},
-    {"key": "risk_terms", "label": "风险条款", "instruction": "提取保证金、主要违约责任、解除条件和争议管辖"},
+    {
+        "key": "service_scope",
+        "label": "服务范围",
+        "instruction": "提取服务对象、主要工作内容以及设备或系统范围",
+    },
+    {
+        "key": "contract_period",
+        "label": "合同期限",
+        "instruction": "提取开始日期、结束日期或施工工期",
+    },
+    {
+        "key": "contract_amount",
+        "label": "合同金额",
+        "instruction": "提取总金额、计价方式、是否含税及税率",
+    },
+    {
+        "key": "payment_terms",
+        "label": "付款条款",
+        "instruction": "提取付款比例、付款节点、付款期限和发票要求",
+    },
+    {
+        "key": "acceptance_terms",
+        "label": "验收条款",
+        "instruction": "提取验收标准、验收条件和验收资料",
+    },
+    {
+        "key": "warranty_terms",
+        "label": "质保与售后",
+        "instruction": "提取质保期限、起算时间和售后响应要求",
+    },
+    {
+        "key": "risk_terms",
+        "label": "风险条款",
+        "instruction": "提取保证金、主要违约责任、解除条件和争议管辖",
+    },
 ]
 
 LEASE_FIELDS = [
@@ -27,21 +58,26 @@ LEASE_FIELDS = [
     {"key": "party_a", "label": "甲方", "instruction": "提取甲方完整名称"},
     {"key": "party_b", "label": "乙方", "instruction": "提取乙方完整名称"},
     {"key": "rent_payment_time", "label": "租金支付时间", "instruction": "提取租金支付节点和期限"},
-    {"key": "rent_payment_amount", "label": "租金支付金额", "instruction": "提取租金金额和支付周期"},
+    {
+        "key": "rent_payment_amount",
+        "label": "租金支付金额",
+        "instruction": "提取租金金额和支付周期",
+    },
     {"key": "area", "label": "面积", "instruction": "提取租赁面积"},
     {"key": "lease_date", "label": "租赁时间", "instruction": "提取租赁起止日期"},
     {"key": "deposit", "label": "押金或保证金", "instruction": "提取押金或保证金金额"},
-    {"key": "deposit_return_conditions", "label": "押金返还条件", "instruction": "提取押金返还条件和期限"},
+    {
+        "key": "deposit_return_conditions",
+        "label": "押金返还条件",
+        "instruction": "提取押金返还条件和期限",
+    },
     {"key": "termination_penalty", "label": "解除违约金", "instruction": "提取解除合同相关违约金"},
     {"key": "property_fee", "label": "物业费", "instruction": "提取物业费标准和支付方式"},
 ]
 
 
 def _with_ids(fields: list[dict]) -> list[dict]:
-    return [
-        {"id": str(uuid.uuid4()), "enabled": True, **field}
-        for field in fields
-    ]
+    return [{"id": str(uuid.uuid4()), "enabled": True, **field} for field in fields]
 
 
 BUILTIN_TEMPLATES = [
@@ -110,10 +146,15 @@ def ensure_builtin_templates(db) -> None:
     db.commit()
 
 
-def get_template_for_analysis(db, template_id: str | None) -> AnalysisTemplate | None:
+def get_template_for_analysis(
+    db, template_id: str | None, organization_id: str | None = None
+) -> AnalysisTemplate | None:
+    query = db.query(AnalysisTemplate)
+    if organization_id:
+        query = query.filter(AnalysisTemplate.organization_id == organization_id)
     if template_id:
-        return db.query(AnalysisTemplate).filter(AnalysisTemplate.id == template_id).first()
+        return query.filter(AnalysisTemplate.id == template_id).first()
     return (
-        db.query(AnalysisTemplate).filter(AnalysisTemplate.is_default.is_(True)).first()
-        or db.query(AnalysisTemplate).order_by(AnalysisTemplate.created_at.asc()).first()
+        query.filter(AnalysisTemplate.is_default.is_(True)).first()
+        or query.order_by(AnalysisTemplate.created_at.asc()).first()
     )

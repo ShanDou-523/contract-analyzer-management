@@ -1,11 +1,23 @@
 <script setup lang="ts">
-import { useRouter } from 'vue-router'
+import { computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from './stores/auth'
 
 const router = useRouter()
+const route = useRoute()
+const auth = useAuthStore()
+const isLogin = computed(() => route.name === 'login')
+
+async function signOut() {
+  await auth.signOut()
+  await router.replace('/login')
+}
 </script>
 
 <template>
   <div id="app-container">
+    <router-view v-if="isLogin" />
+    <template v-else>
     <el-container class="app-layout">
       <el-header class="app-header">
         <div class="header-left">
@@ -21,10 +33,12 @@ const router = useRouter()
             <el-icon><Setting /></el-icon>
             设置
           </el-button>
+          <el-button text @click="signOut">退出</el-button>
         </div>
       </el-header>
       <el-main class="app-main"><router-view /></el-main>
       <el-footer class="app-footer">合同分析系统 v1.0 — 基于 DeepSeek AI</el-footer>
     </el-container>
+    </template>
   </div>
 </template>

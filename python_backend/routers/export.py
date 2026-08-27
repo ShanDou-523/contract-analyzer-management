@@ -5,14 +5,17 @@ import json
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from sqlalchemy.orm import Session
 
+from core.security import CurrentPrincipal, get_current_principal
 from database import get_db
 from models.document import AnalysisResult, Document
 
-router = APIRouter(prefix="/api/export", tags=["export"])
+router = APIRouter(
+    prefix="/api/export", tags=["export"], dependencies=[Depends(get_current_principal)]
+)
 
 HEADER_FONT = Font(bold=True, size=12)
 HEADER_FILL = PatternFill(start_color="4472C4", end_color="4472C4", fill_type="solid")
@@ -63,10 +66,15 @@ def excel_value(value):
 
 
 def latest_result(db: Session, doc_id: str, prompt_type: str):
-    return db.query(AnalysisResult).filter(
-        AnalysisResult.document_id == doc_id,
-        AnalysisResult.prompt_type == prompt_type,
-    ).order_by(AnalysisResult.created_at.desc()).first()
+    return (
+        db.query(AnalysisResult)
+        .filter(
+            AnalysisResult.document_id == doc_id,
+            AnalysisResult.prompt_type == prompt_type,
+        )
+        .order_by(AnalysisResult.created_at.desc())
+        .first()
+    )
 
 
 def snapshot_fields(result) -> list[dict]:
@@ -80,9 +88,16 @@ def snapshot_fields(result) -> list[dict]:
 
 
 @router.get("/{doc_id}")
-def export_excel(doc_id: str, db: Session = Depends(get_db)):
+def export_excel(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
     """Generate Excel file for a document's analysis results."""
-    document = db.query(Document).filter(Document.id == doc_id).first()
+    query = db.query(Document).filter(Document.id == doc_id)
+    if isinstance(principal, CurrentPrincipal):
+        query = query.filter(Document.organization_id == principal.organization_id)
+    document = query.first()
     if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
 
@@ -113,12 +128,17 @@ def export_excel(doc_id: str, db: Session = Depends(get_db)):
     fields = snapshot_fields(attribute_record)
     row = 3
     if fields:
-        attr_rows = [
-            (field.get("label") or field.get("key"), attr_result.get(field.get("key"), "未提及"))
-            for field in fields
-        ] if attr_result else [
-            (field.get("label") or field.get("key"), "（无分析结果）") for field in fields
-        ]
+        attr_rows = (
+            [
+                (
+                    field.get("label") or field.get("key"),
+                    attr_result.get(field.get("key"), "未提及"),
+                )
+                for field in fields
+            ]
+            if attr_result
+            else [(field.get("label") or field.get("key"), "（无分析结果）") for field in fields]
+        )
     else:
         attr_rows = list(attr_result.items()) if attr_result else [("分析结果", "（无分析结果）")]
     for label, value in attr_rows:

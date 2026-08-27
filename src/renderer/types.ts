@@ -64,3 +64,29 @@ export interface Settings {
   baidu_ocr_api_key: string
   baidu_ocr_secret_key: string
 }
+
+export interface AuthUser {
+  id: string
+  username: string
+  display_name: string
+  email: string | null
+  organization_id: string
+  status: string
+  roles: string[]
+}
+
+export interface TokenResponse {
+  access_token: string
+  refresh_token: string
+  token_type: string
+  expires_at: string
+  user: AuthUser
+}
+
+export interface UserCreate {
+  username: string
+  password: string
+  display_name: string
+  email?: string
+  roles: string[]
+}

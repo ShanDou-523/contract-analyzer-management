@@ -1,5 +1,6 @@
 .env
 .contract_analyzer_secret.key
+.contract_analyzer_jwt.key
 __pycache__/
 *.py[cod]
 *.db

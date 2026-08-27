@@ -6,21 +6,34 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from core.security import CurrentPrincipal, get_current_principal, require_roles
 from database import get_db
 from models.document import AnalysisResult, Document
 from schemas.analysis import AnalysisResponse, AnalyzeRequest
 from schemas.document import AnalysisResultOut
-from services.deepseek_service import get_deepseek_service
 from services.analysis_template_service import decode_fields, get_template_for_analysis
+from services.deepseek_service import get_deepseek_service
 
-router = APIRouter(prefix="/api/analysis", tags=["analysis"])
+router = APIRouter(
+    prefix="/api/analysis", tags=["analysis"], dependencies=[Depends(get_current_principal)]
+)
 logger = logging.getLogger("contract_analyzer.analysis")
 
 
 @router.post("/{doc_id}/analyze", response_model=AnalysisResponse)
-def analyze_document(doc_id: str, data: AnalyzeRequest | None = None, db: Session = Depends(get_db)):
+def analyze_document(
+    doc_id: str,
+    data: AnalyzeRequest | None = None,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(
+        require_roles("system_admin", "org_admin", "contract_manager", "reviewer")
+    ),
+):
     """Run DeepSeek analysis on an OCR-processed document."""
-    document = db.query(Document).filter(Document.id == doc_id).first()
+    query = db.query(Document).filter(Document.id == doc_id)
+    if isinstance(principal, CurrentPrincipal):
+        query = query.filter(Document.organization_id == principal.organization_id)
+    document = query.first()
     if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
     if document.status != "ocr_done" and document.status != "done":
@@ -31,11 +44,14 @@ def analyze_document(doc_id: str, data: AnalyzeRequest | None = None, db: Sessio
     if not document.ocr_text:
         raise HTTPException(status_code=400, detail="文档OCR文本为空，无法分析")
 
-    template = get_template_for_analysis(db, data.template_id if data else None)
+    organization_id = principal.organization_id if isinstance(principal, CurrentPrincipal) else None
+    template = get_template_for_analysis(db, data.template_id if data else None, organization_id)
     if not template:
         raise HTTPException(status_code=404, detail="分析方案不存在，请先在设置中创建方案")
 
-    had_results = db.query(AnalysisResult).filter(AnalysisResult.document_id == document.id).count() > 0
+    had_results = (
+        db.query(AnalysisResult).filter(AnalysisResult.document_id == document.id).count() > 0
+    )
 
     try:
         document.status = "analyzing"
@@ -44,14 +60,12 @@ def analyze_document(doc_id: str, data: AnalyzeRequest | None = None, db: Sessio
 
         deepseek = get_deepseek_service()
         results = deepseek.analyze_document(document, template)
-        fields_snapshot = [
-            field for field in decode_fields(template) if field.get("enabled", True)
-        ]
+        fields_snapshot = [field for field in decode_fields(template) if field.get("enabled", True)]
         fields_snapshot_json = json.dumps(fields_snapshot, ensure_ascii=False)
 
-        db.query(AnalysisResult).filter(
-            AnalysisResult.document_id == document.id
-        ).delete(synchronize_session=False)
+        db.query(AnalysisResult).filter(AnalysisResult.document_id == document.id).delete(
+            synchronize_session=False
+        )
         for result_data in results:
             ar = AnalysisResult(
                 document_id=document.id,
@@ -71,9 +85,12 @@ def analyze_document(doc_id: str, data: AnalyzeRequest | None = None, db: Sessio
         document.analysis_template_version = template.version
         document.status = "done"
         db.commit()
-        stored_results = db.query(AnalysisResult).filter(
-            AnalysisResult.document_id == document.id
-        ).order_by(AnalysisResult.created_at.desc()).all()
+        stored_results = (
+            db.query(AnalysisResult)
+            .filter(AnalysisResult.document_id == document.id)
+            .order_by(AnalysisResult.created_at.desc())
+            .all()
+        )
         result_outs = [
             AnalysisResultOut(
                 id=r.id,
@@ -85,7 +102,9 @@ def analyze_document(doc_id: str, data: AnalyzeRequest | None = None, db: Sessio
                 template_id=r.template_id,
                 template_name=r.template_name,
                 template_version=r.template_version,
-                fields_snapshot=json.loads(r.fields_snapshot_json) if r.fields_snapshot_json else None,
+                fields_snapshot=json.loads(r.fields_snapshot_json)
+                if r.fields_snapshot_json
+                else None,
                 created_at=r.created_at.isoformat() if r.created_at else None,
             )
             for r in stored_results
@@ -98,7 +117,12 @@ def analyze_document(doc_id: str, data: AnalyzeRequest | None = None, db: Sessio
     except Exception as exc:
         logger.exception("AI analysis failed document_id=%s", doc_id)
         db.rollback()
-        document = db.query(Document).filter(Document.id == doc_id).first()
+        recovery_query = db.query(Document).filter(Document.id == doc_id)
+        if isinstance(principal, CurrentPrincipal):
+            recovery_query = recovery_query.filter(
+                Document.organization_id == principal.organization_id
+            )
+        document = recovery_query.first()
         document.status = "done" if had_results else "error"
         document.error_message = str(exc)
         db.commit()

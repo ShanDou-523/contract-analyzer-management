@@ -3,6 +3,7 @@ cryptography==50.0.0
 fastapi==0.141.1
 openai==3.3.1
 openpyxl==3.1.5
+PyJWT==2.10.1
 pillow==12.3.0
 pydantic-settings==2.15.0
 pymupdf==1.28.2

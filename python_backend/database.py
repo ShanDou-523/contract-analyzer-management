@@ -49,6 +49,7 @@ def run_migrations() -> None:
 def init_db() -> None:
     """Run migrations, legacy backfill, and built-in template seeding."""
     from services.analysis_template_service import ensure_builtin_templates
+    from services.auth_service import ensure_auth_baseline
     from services.domain_migration import migrate_legacy_data
     from services.secret_service import migrate_legacy_secrets
 
@@ -69,6 +70,7 @@ def init_db() -> None:
             settings.resolved_upload_dir,
             settings.resolved_data_dir / "migration_reports" / "stage2_legacy_migration.json",
         )
+        ensure_auth_baseline(db)
     finally:
         db.close()
 

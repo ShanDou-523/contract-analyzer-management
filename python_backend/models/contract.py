@@ -59,10 +59,66 @@ class User(Base):
     email = Column(String(320), nullable=True)
     password_hash = Column(String(512), nullable=True)
     status = Column(String(20), nullable=False, default="active", index=True)
+    failed_login_count = Column(Integer, nullable=False, default=0)
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
 
     organization = relationship("Organization", back_populates="users")
+    roles = relationship("UserRole", back_populates="user", cascade="all, delete-orphan")
+
+
+class Role(Base):
+    __tablename__ = "roles"
+    __table_args__ = (UniqueConstraint("organization_id", "name", name="uq_role_org_name"),)
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=True, index=True)
+    name = Column(String(50), nullable=False)
+    description = Column(String(300), nullable=False, default="")
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+    user_roles = relationship("UserRole", back_populates="role", cascade="all, delete-orphan")
+
+
+class UserRole(Base):
+    __tablename__ = "user_roles"
+
+    user_id = Column(String(36), ForeignKey("users.id"), primary_key=True)
+    role_id = Column(String(36), ForeignKey("roles.id"), primary_key=True)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+    user = relationship("User", back_populates="roles")
+    role = relationship("Role", back_populates="user_roles")
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    refresh_token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    __table_args__ = (Index("ix_audit_logs_org_created", "organization_id", "created_at"),)
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), nullable=True, index=True)
+    user_id = Column(String(36), nullable=True, index=True)
+    action = Column(String(100), nullable=False, index=True)
+    resource_type = Column(String(100), nullable=True)
+    resource_id = Column(String(36), nullable=True)
+    details_json = Column(Text, nullable=False, default="{}")
+    request_id = Column(String(100), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False, index=True)
 
 
 class Contract(Base):

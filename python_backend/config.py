@@ -55,6 +55,31 @@ class AppSettings(BaseSettings):
         default="", validation_alias=AliasChoices("CONTRACT_ANALYZER_SECRET_KEY")
     )
     redis_url: str = Field(default="", validation_alias=AliasChoices("CONTRACT_ANALYZER_REDIS_URL"))
+    jwt_secret_key: str = Field(
+        default="", validation_alias=AliasChoices("CONTRACT_ANALYZER_JWT_SECRET_KEY")
+    )
+    access_token_expire_minutes: int = Field(
+        default=30,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_ACCESS_TOKEN_EXPIRE_MINUTES"),
+    )
+    refresh_token_expire_days: int = Field(
+        default=14,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_REFRESH_TOKEN_EXPIRE_DAYS"),
+    )
+    max_login_attempts: int = Field(
+        default=5,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_MAX_LOGIN_ATTEMPTS"),
+    )
+    lockout_minutes: int = Field(
+        default=15,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_LOCKOUT_MINUTES"),
+    )
+    admin_username: str = Field(
+        default="", validation_alias=AliasChoices("CONTRACT_ANALYZER_ADMIN_USERNAME")
+    )
+    admin_password: str = Field(
+        default="", validation_alias=AliasChoices("CONTRACT_ANALYZER_ADMIN_PASSWORD")
+    )
     ocr_dpi: int = Field(
         default=300,
         validation_alias=AliasChoices("CONTRACT_ANALYZER_OCR_DPI", "OCR_DPI"),
@@ -133,6 +158,10 @@ class AppSettings(BaseSettings):
     @property
     def secret_key_path(self) -> Path:
         return self.resolved_data_dir / ".contract_analyzer_secret.key"
+
+    @property
+    def jwt_secret_key_path(self) -> Path:
+        return self.resolved_data_dir / ".contract_analyzer_jwt.key"
 
 
 @lru_cache(maxsize=1)

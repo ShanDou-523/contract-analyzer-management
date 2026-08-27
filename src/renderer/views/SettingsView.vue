@@ -9,11 +9,13 @@ import {
   duplicateAnalysisTemplate,
   getAnalysisTemplates,
   getSettings,
+  getUsers,
+  createUser,
   setDefaultAnalysisTemplate,
   updateAnalysisTemplate,
   updateSettings,
 } from '../api'
-import type { AnalysisField, AnalysisTemplate, AnalysisTemplateWrite } from '../types'
+import type { AnalysisField, AnalysisTemplate, AnalysisTemplateWrite, AuthUser } from '../types'
 
 const router = useRouter()
 const activeTab = ref('templates')
@@ -22,6 +24,10 @@ const loadingTemplates = ref(false)
 const savingTemplate = ref(false)
 const templates = ref<AnalysisTemplate[]>([])
 const selectedTemplateId = ref<string | null>(null)
+const users = ref<AuthUser[]>([])
+const loadingUsers = ref(false)
+const creatingUser = ref(false)
+const userForm = reactive({ username: '', password: '', display_name: '', roles: ['viewer'] })
 
 const currentApi = reactive({
   deepseek_api_key: '',
@@ -77,12 +83,45 @@ async function loadTemplates(preferredId?: string) {
   }
 }
 
+async function loadUsers() {
+  loadingUsers.value = true
+  try {
+    users.value = await getUsers()
+  } catch {
+    users.value = []
+  } finally {
+    loadingUsers.value = false
+  }
+}
+
 onMounted(async () => {
   await Promise.all([
     getSettings().then((settings) => Object.assign(currentApi, settings)).catch(() => undefined),
     loadTemplates(),
+    loadUsers(),
   ])
 })
+
+async function saveUser() {
+  if (!userForm.username.trim() || userForm.password.length < 10 || !userForm.display_name.trim()) {
+    ElMessage.warning('请填写用户名、显示名称和至少10位密码')
+    return
+  }
+  creatingUser.value = true
+  try {
+    await createUser({
+      username: userForm.username.trim(),
+      password: userForm.password,
+      display_name: userForm.display_name.trim(),
+      roles: userForm.roles,
+    })
+    Object.assign(userForm, { username: '', password: '', display_name: '', roles: ['viewer'] })
+    await loadUsers()
+    ElMessage.success('用户已创建')
+  } finally {
+    creatingUser.value = false
+  }
+}
 
 function resetApiForm() {
   apiForm.deepseek_api_key = ''
@@ -399,6 +438,54 @@ async function removeSelected() {
             </el-form-item>
           </el-form>
         </el-tab-pane>
+
+        <el-tab-pane label="用户管理" name="users">
+          <div class="user-management">
+            <div class="template-toolbar">
+              <div>
+                <h2>用户管理</h2>
+                <p>为当前组织创建成员并分配最小必要权限。</p>
+              </div>
+            </div>
+
+            <el-form class="user-form" :model="userForm" label-position="top" @submit.prevent="saveUser">
+              <div class="form-grid">
+                <el-form-item label="用户名" required>
+                  <el-input v-model="userForm.username" autocomplete="off" placeholder="例如：zhangsan" />
+                </el-form-item>
+                <el-form-item label="显示名称" required>
+                  <el-input v-model="userForm.display_name" placeholder="例如：张三" />
+                </el-form-item>
+                <el-form-item label="初始密码" required>
+                  <el-input v-model="userForm.password" type="password" show-password autocomplete="new-password" placeholder="至少10位" />
+                </el-form-item>
+                <el-form-item label="角色" required>
+                  <el-select v-model="userForm.roles" multiple collapse-tags placeholder="选择角色" style="width: 100%">
+                    <el-option label="查看者" value="viewer" />
+                    <el-option label="合同经理" value="contract_manager" />
+                    <el-option label="审查员" value="reviewer" />
+                    <el-option label="组织管理员" value="org_admin" />
+                    <el-option label="系统管理员" value="system_admin" />
+                  </el-select>
+                </el-form-item>
+              </div>
+              <div class="save-row">
+                <el-button type="primary" :loading="creatingUser" @click="saveUser">创建用户</el-button>
+              </div>
+            </el-form>
+
+            <el-table v-loading="loadingUsers" :data="users" stripe>
+              <el-table-column prop="username" label="用户名" min-width="150" />
+              <el-table-column prop="display_name" label="显示名称" min-width="150" />
+              <el-table-column label="角色" min-width="240">
+                <template #default="{ row }">
+                  <el-tag v-for="role in row.roles" :key="role" size="small" class="role-tag">{{ role }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="status" label="状态" width="100" />
+            </el-table>
+          </div>
+        </el-tab-pane>
       </el-tabs>
     </el-card>
   </div>
@@ -410,6 +497,9 @@ async function removeSelected() {
 .template-toolbar, .editor-header, .field-section-header, .editor-title, .editor-actions, .template-meta, .save-row { display: flex; align-items: center; }
 .template-toolbar, .editor-header, .field-section-header { justify-content: space-between; gap: 16px; }
 .template-toolbar { margin-bottom: 20px; }
+.user-management { max-width: 1000px; }
+.user-form { margin-bottom: 28px; }
+.role-tag { margin: 2px 4px 2px 0; }
 .template-toolbar h2, .template-toolbar p, .field-section-header h3, .field-section-header p { margin: 0; }
 .template-toolbar h2 { font-size: 20px; }
 .template-toolbar p, .field-section-header p { margin-top: 4px; color: #6b7280; font-size: 13px; }

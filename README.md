@@ -39,6 +39,8 @@ npm run test:python
 
 阶段 2 的合同领域模型、历史数据迁移规则和对账结果见 `STAGE2_DOMAIN_MIGRATION.md`。
 
+阶段 3 的登录、组织权限、会话和审计说明见 `STAGE3_AUTH_AND_PERMISSIONS.md`。
+
 ## 构建
 
 ```powershell

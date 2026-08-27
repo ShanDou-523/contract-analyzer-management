@@ -6,19 +6,29 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from core.security import CurrentPrincipal, get_current_principal, require_roles
 from database import get_db
 from models.document import Document
 from schemas.analysis import OcrProcessResponse
 from services.ocr_service import get_ocr_service
 
-router = APIRouter(prefix="/api/ocr", tags=["ocr"])
+router = APIRouter(prefix="/api/ocr", tags=["ocr"], dependencies=[Depends(get_current_principal)])
 logger = logging.getLogger("contract_analyzer.ocr")
 
 
 @router.post("/{doc_id}/process", response_model=OcrProcessResponse)
-def process_ocr(doc_id: str, db: Session = Depends(get_db)):
+def process_ocr(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(
+        require_roles("system_admin", "org_admin", "contract_manager")
+    ),
+):
     """Run OCR on an uploaded document."""
-    document = db.query(Document).filter(Document.id == doc_id).first()
+    query = db.query(Document).filter(Document.id == doc_id)
+    if isinstance(principal, CurrentPrincipal):
+        query = query.filter(Document.organization_id == principal.organization_id)
+    document = query.first()
     if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
     if document.status != "uploaded":

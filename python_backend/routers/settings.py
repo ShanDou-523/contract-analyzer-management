@@ -1,13 +1,19 @@
 """Settings router for managing API keys."""
 
 from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
+from core.security import CurrentPrincipal, require_roles
 from database import get_db
+from services.audit_service import record_audit
 from services.secret_service import get_secret_setting, set_secret_setting
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+router = APIRouter(
+    prefix="/api/settings",
+    tags=["settings"],
+    dependencies=[Depends(require_roles("system_admin", "org_admin"))],
+)
 
 
 class SettingsOut(BaseModel):
@@ -51,7 +57,11 @@ def get_settings(db: Session = Depends(get_db)):
 
 
 @router.put("")
-def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
+def update_settings(
+    data: SettingsUpdate,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(require_roles("system_admin", "org_admin")),
+):
     """Update API keys. Only non-empty values are saved."""
     updated = []
     if data.deepseek_api_key.strip():
@@ -63,4 +73,14 @@ def update_settings(data: SettingsUpdate, db: Session = Depends(get_db)):
     if data.baidu_ocr_secret_key.strip():
         set_secret_setting(db, "baidu_ocr_secret_key", data.baidu_ocr_secret_key.strip())
         updated.append("baidu_ocr_secret_key")
+    if updated:
+        record_audit(
+            db,
+            "settings.provider_credentials_updated",
+            organization_id=principal.organization_id,
+            user_id=principal.user_id,
+            resource_type="provider_settings",
+            details={"keys": updated},
+        )
+        db.commit()
     return {"message": f"已更新 {len(updated)} 项设置", "updated": updated}

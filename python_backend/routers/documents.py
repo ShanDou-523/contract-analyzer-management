@@ -1,27 +1,31 @@
 """Document CRUD router."""
 
 import json
-import uuid
 import shutil
+import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, UploadFile, File, Depends, Form, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
-from config import UPLOAD_DIR, MAX_FILE_SIZE_BYTES
+from config import MAX_FILE_SIZE_BYTES, UPLOAD_DIR
+from core.security import CurrentPrincipal, get_current_principal, require_roles
 from database import get_db
 from models.document import AnalysisResult, AnalysisTemplate, Document
 from schemas.document import (
-    DocumentOut,
+    AnalysisResultOut,
     DocumentListItem,
     DocumentListOut,
-    DocumentUploadResponse,
-    AnalysisResultOut,
+    DocumentOut,
     DocumentTemplateUpdate,
+    DocumentUploadResponse,
 )
 from services.analysis_template_service import get_template_for_analysis
+from services.audit_service import record_audit
 
-router = APIRouter(prefix="/api/documents", tags=["documents"])
+router = APIRouter(
+    prefix="/api/documents", tags=["documents"], dependencies=[Depends(get_current_principal)]
+)
 
 
 @router.post("/upload", response_model=DocumentUploadResponse)
@@ -29,12 +33,16 @@ async def upload_document(
     file: UploadFile = File(...),
     template_id: str | None = Form(None),
     db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(
+        require_roles("system_admin", "org_admin", "contract_manager")
+    ),
 ):
     """Upload a PDF document."""
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="仅支持PDF文件格式")
 
-    template = get_template_for_analysis(db, template_id)
+    organization_id = principal.organization_id if isinstance(principal, CurrentPrincipal) else None
+    template = get_template_for_analysis(db, template_id, organization_id)
     if not template:
         raise HTTPException(status_code=404, detail="分析方案不存在，请先选择有效方案")
 
@@ -57,6 +65,9 @@ async def upload_document(
         stored_filename=stored_filename,
         file_size=len(content),
         status="uploaded",
+        organization_id=principal.organization_id
+        if isinstance(principal, CurrentPrincipal)
+        else None,
         analysis_template_id=template.id,
         analysis_template_name=template.name,
         analysis_template_version=template.version,
@@ -64,6 +75,17 @@ async def upload_document(
     db.add(document)
     db.commit()
     db.refresh(document)
+    if isinstance(principal, CurrentPrincipal):
+        record_audit(
+            db,
+            "document.uploaded",
+            organization_id=principal.organization_id,
+            user_id=principal.user_id,
+            resource_type="document",
+            resource_id=document.id,
+            details={"filename": document.original_filename},
+        )
+        db.commit()
     return DocumentUploadResponse(
         id=document.id,
         original_filename=document.original_filename,
@@ -80,9 +102,12 @@ def list_documents(
     template_id: str | None = Query(default=None),
     search: str | None = Query(default=None, max_length=200),
     db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
 ):
     """List documents filtered by template, or globally searched by file name."""
     query = db.query(Document)
+    if isinstance(principal, CurrentPrincipal):
+        query = query.filter(Document.organization_id == principal.organization_id)
     search_term = search.strip() if search else ""
     if search_term:
         query = query.filter(Document.original_filename.contains(search_term, autoescape=True))
@@ -109,15 +134,25 @@ def list_documents(
 
 
 @router.get("/{doc_id}", response_model=DocumentOut)
-def get_document(doc_id: str, db: Session = Depends(get_db)):
+def get_document(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+):
     """Get document details including analysis results."""
-    document = db.query(Document).filter(Document.id == doc_id).first()
+    query = db.query(Document).filter(Document.id == doc_id)
+    if isinstance(principal, CurrentPrincipal):
+        query = query.filter(Document.organization_id == principal.organization_id)
+    document = query.first()
     if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
 
-    stored_results = db.query(AnalysisResult).filter(
-        AnalysisResult.document_id == document.id
-    ).order_by(AnalysisResult.created_at.desc()).all()
+    stored_results = (
+        db.query(AnalysisResult)
+        .filter(AnalysisResult.document_id == document.id)
+        .order_by(AnalysisResult.created_at.desc())
+        .all()
+    )
     latest_by_type = {}
     for result in stored_results:
         latest_by_type.setdefault(result.prompt_type, result)
@@ -148,7 +183,9 @@ def get_document(doc_id: str, db: Session = Depends(get_db)):
                 template_id=r.template_id,
                 template_name=r.template_name,
                 template_version=r.template_version,
-                fields_snapshot=json.loads(r.fields_snapshot_json) if r.fields_snapshot_json else None,
+                fields_snapshot=json.loads(r.fields_snapshot_json)
+                if r.fields_snapshot_json
+                else None,
                 created_at=r.created_at.isoformat() if r.created_at else None,
             )
             for r in latest_by_type.values()
@@ -161,17 +198,26 @@ def assign_document_template(
     doc_id: str,
     data: DocumentTemplateUpdate,
     db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(
+        require_roles("system_admin", "org_admin", "contract_manager")
+    ),
 ):
     """Manually classify a document without rerunning OCR or AI analysis."""
-    document = db.query(Document).filter(Document.id == doc_id).first()
+    query = db.query(Document).filter(Document.id == doc_id)
+    if isinstance(principal, CurrentPrincipal):
+        query = query.filter(Document.organization_id == principal.organization_id)
+    document = query.first()
     if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
 
     template = None
     if data.template_id and data.template_id != "unassigned":
-        template = db.query(AnalysisTemplate).filter(
-            AnalysisTemplate.id == data.template_id
-        ).first()
+        template_query = db.query(AnalysisTemplate).filter(AnalysisTemplate.id == data.template_id)
+        if isinstance(principal, CurrentPrincipal):
+            template_query = template_query.filter(
+                AnalysisTemplate.organization_id == principal.organization_id
+            )
+        template = template_query.first()
         if not template:
             raise HTTPException(status_code=404, detail="分析方案不存在")
 
@@ -194,9 +240,18 @@ def assign_document_template(
 
 
 @router.delete("/{doc_id}")
-def delete_document(doc_id: str, db: Session = Depends(get_db)):
+def delete_document(
+    doc_id: str,
+    db: Session = Depends(get_db),
+    principal: CurrentPrincipal = Depends(
+        require_roles("system_admin", "org_admin", "contract_manager")
+    ),
+):
     """Delete a document and its files."""
-    document = db.query(Document).filter(Document.id == doc_id).first()
+    query = db.query(Document).filter(Document.id == doc_id)
+    if isinstance(principal, CurrentPrincipal):
+        query = query.filter(Document.organization_id == principal.organization_id)
+    document = query.first()
     if not document:
         raise HTTPException(status_code=404, detail="文档不存在")
 
@@ -205,4 +260,14 @@ def delete_document(doc_id: str, db: Session = Depends(get_db)):
         file_path.unlink()
     db.delete(document)
     db.commit()
+    if isinstance(principal, CurrentPrincipal):
+        record_audit(
+            db,
+            "document.deleted",
+            organization_id=principal.organization_id,
+            user_id=principal.user_id,
+            resource_type="document",
+            resource_id=doc_id,
+        )
+        db.commit()
     return {"message": "文档已删除", "id": doc_id}

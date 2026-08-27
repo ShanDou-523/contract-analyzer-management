@@ -6,6 +6,9 @@ import type {
   DocumentDetail,
   DocumentListItem,
   Settings,
+  TokenResponse,
+  AuthUser,
+  UserCreate,
 } from '../types'
 
 let api: AxiosInstance | null = null
@@ -25,12 +28,24 @@ export async function initApi(): Promise<AxiosInstance> {
     headers: { 'Content-Type': 'application/json' },
   })
 
+  api.interceptors.request.use((config) => {
+    const token = localStorage.getItem('contract_analyzer_access_token')
+    if (token) config.headers.Authorization = `Bearer ${token}`
+    return config
+  })
+
   api.interceptors.response.use(
     (response) => response,
     (error) => {
       if (error.response) {
         const { status, data } = error.response
-        const detail = data?.detail || '未知错误'
+        const detail = data?.message || data?.detail || '未知错误'
+        if (status === 401 && !window.location.hash.includes('/login')) {
+          localStorage.removeItem('contract_analyzer_access_token')
+          localStorage.removeItem('contract_analyzer_refresh_token')
+          window.dispatchEvent(new Event('contract-analyzer-auth-expired'))
+          window.location.hash = '#/login'
+        }
         switch (status) {
           case 413:
             ElMessage.error(`文件过大: ${detail}`)
@@ -62,6 +77,41 @@ export async function initApi(): Promise<AxiosInstance> {
   )
 
   return api
+}
+
+export async function login(username: string, password: string): Promise<TokenResponse> {
+  const { data } = await (await client()).post('/api/v1/auth/login', { username, password })
+  return data
+}
+
+export async function bootstrapAdmin(payload: {
+  organization_name: string
+  organization_code: string
+  username: string
+  password: string
+  display_name: string
+}): Promise<TokenResponse> {
+  const { data } = await (await client()).post('/api/v1/auth/bootstrap', payload)
+  return data
+}
+
+export async function getCurrentUser() {
+  const { data } = await (await client()).get('/api/v1/auth/me')
+  return data
+}
+
+export async function logout(refreshToken: string) {
+  await (await client()).post('/api/v1/auth/logout', { refresh_token: refreshToken })
+}
+
+export async function getUsers(): Promise<AuthUser[]> {
+  const { data } = await (await client()).get('/api/v1/users')
+  return data
+}
+
+export async function createUser(payload: UserCreate): Promise<AuthUser> {
+  const { data } = await (await client()).post('/api/v1/users', payload)
+  return data
 }
 
 async function client(): Promise<AxiosInstance> {

@@ -15,6 +15,7 @@ class Document(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     original_filename = Column(String(512), nullable=False)
     stored_filename = Column(String(512), nullable=False)
+    organization_id = Column(String(36), nullable=True, index=True)
     file_size = Column(Integer, nullable=False, default=0)
     status = Column(String(20), nullable=False, default="uploaded", index=True)
     ocr_text = Column(Text, nullable=True)
@@ -98,6 +99,7 @@ class AnalysisTemplate(Base):
     __tablename__ = "analysis_templates"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    organization_id = Column(String(36), nullable=True, index=True)
     name = Column(String(100), nullable=False, unique=True, index=True)
     description = Column(Text, nullable=False, default="")
     analysis_focus = Column(Text, nullable=False, default="")

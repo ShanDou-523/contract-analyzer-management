@@ -95,7 +95,10 @@ def _get_or_create_legacy_identity(db: Session) -> tuple[Organization, User]:
 def _migrate_template_versions(db: Session, migration_user: User) -> dict[tuple[str, int], str]:
     versions: dict[tuple[str, int], str] = {}
     templates = db.query(AnalysisTemplate).order_by(AnalysisTemplate.created_at.asc()).all()
+    organization_id = migration_user.organization_id
     for template in templates:
+        if template.organization_id != organization_id:
+            template.organization_id = organization_id
         version = (
             template.version if isinstance(template.version, int) and template.version > 0 else 1
         )
@@ -170,6 +173,8 @@ def _migrate_contract(
         )
         db.add(contract)
         db.flush()
+    if document.organization_id != organization.id:
+        document.organization_id = organization.id
 
     contract_file = (
         db.query(ContractFile)
