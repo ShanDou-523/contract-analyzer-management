@@ -90,3 +90,80 @@ export interface UserCreate {
   email?: string
   roles: string[]
 }
+
+export interface Contract {
+  id: string
+  organization_id: string
+  contract_no: string | null
+  name: string
+  category: string | null
+  status: string
+  party_a_name: string | null
+  party_b_name: string | null
+  project_name: string | null
+  department_name: string | null
+  sign_date: string | null
+  effective_date: string | null
+  start_date: string | null
+  end_date: string | null
+  amount: string | number | null
+  currency: string
+  tax_included: boolean | null
+  risk_level: string
+  source: string
+  created_at: string
+  updated_at: string
+  deleted_at: string | null
+}
+
+export interface PagedContracts {
+  items: Contract[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface FileVersion {
+  id: string
+  contract_file_id: string
+  version_no: number
+  original_filename: string
+  mime_type: string
+  size_bytes: number
+  sha256: string | null
+  page_count: number | null
+  uploaded_at: string
+  is_current: boolean
+  download_url: string
+  preview_url: string
+}
+
+export interface ContractFile {
+  id: string
+  contract_id: string
+  purpose: string
+  current_version_id: string | null
+  versions: FileVersion[]
+}
+
+export interface ContractImportPreview {
+  id: string
+  original_filename: string
+  file_format: string
+  columns: string[]
+  sample_rows: Record<string, string>[]
+  row_count: number
+  status: string
+  validation: {
+    valid?: boolean
+    errors?: Array<{ row: number; field: string; message: string }>
+    valid_rows?: number
+  }
+  expires_at: string | null
+}
+
+export interface ContractImportConfirm {
+  job_id: string
+  created_count: number
+  contract_ids: string[]
+}

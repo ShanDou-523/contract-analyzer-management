@@ -41,6 +41,8 @@ npm run test:python
 
 阶段 3 的登录、组织权限、会话和审计说明见 `STAGE3_AUTH_AND_PERMISSIONS.md`。
 
+阶段 4 的合同台账、文件版本、回收站和导入流程见 `STAGE4_CONTRACT_LEDGER.md`。
+
 ## 构建
 
 ```powershell

@@ -29,6 +29,10 @@ async function signOut() {
             <el-icon><HomeFilled /></el-icon>
             首页
           </el-button>
+          <el-button text @click="router.push('/contracts')">
+            <el-icon><Tickets /></el-icon>
+            合同台账
+          </el-button>
           <el-button text @click="router.push('/settings')">
             <el-icon><Setting /></el-icon>
             设置

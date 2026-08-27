@@ -9,6 +9,11 @@ import type {
   TokenResponse,
   AuthUser,
   UserCreate,
+  Contract,
+  ContractFile,
+  ContractImportConfirm,
+  ContractImportPreview,
+  PagedContracts,
 } from '../types'
 
 let api: AxiosInstance | null = null
@@ -111,6 +116,89 @@ export async function getUsers(): Promise<AuthUser[]> {
 
 export async function createUser(payload: UserCreate): Promise<AuthUser> {
   const { data } = await (await client()).post('/api/v1/users', payload)
+  return data
+}
+
+export async function listContracts(params: {
+  page?: number
+  page_size?: number
+  search?: string
+  status?: string
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+} = {}): Promise<PagedContracts> {
+  const { data } = await (await client()).get('/api/v1/contracts', { params })
+  return data
+}
+
+export async function listRecycleBin(params: {
+  page?: number
+  page_size?: number
+  search?: string
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+} = {}): Promise<PagedContracts> {
+  const { data } = await (await client()).get('/api/v1/contracts/recycle-bin', { params })
+  return data
+}
+
+export async function createContract(payload: Partial<Contract> & { name: string }): Promise<Contract> {
+  const { data } = await (await client()).post('/api/v1/contracts', payload)
+  return data
+}
+
+export async function deleteContract(id: string) {
+  await (await client()).delete(`/api/v1/contracts/${id}`)
+}
+
+export async function restoreContract(id: string): Promise<Contract> {
+  const { data } = await (await client()).post(`/api/v1/contracts/${id}/restore`)
+  return data
+}
+
+export async function listContractFiles(contractId: string): Promise<ContractFile[]> {
+  const { data } = await (await client()).get(`/api/v1/contracts/${contractId}/files`)
+  return data
+}
+
+export async function uploadContractFile(contractId: string, file: File, purpose = 'original') {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('purpose', purpose)
+  const { data } = await (await client()).post(`/api/v1/contracts/${contractId}/files`, form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 60000,
+  })
+  return data
+}
+
+export async function getContractFileBlob(url: string): Promise<Blob> {
+  const { data } = await (await client()).get(url, { responseType: 'blob' })
+  return data
+}
+
+export async function createContractImport(file: File): Promise<ContractImportPreview> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await (await client()).post('/api/v1/contracts/imports', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 60000,
+  })
+  return data
+}
+
+export async function getContractImportPreview(jobId: string): Promise<ContractImportPreview> {
+  const { data } = await (await client()).get(`/api/v1/contracts/imports/${jobId}`)
+  return data
+}
+
+export async function validateContractImport(jobId: string): Promise<ContractImportPreview> {
+  const { data } = await (await client()).post(`/api/v1/contracts/imports/${jobId}/validate`)
+  return data
+}
+
+export async function confirmContractImport(jobId: string): Promise<ContractImportConfirm> {
+  const { data } = await (await client()).post(`/api/v1/contracts/imports/${jobId}/confirm`)
   return data
 }
 

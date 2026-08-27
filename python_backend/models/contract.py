@@ -205,6 +205,28 @@ class FileVersion(Base):
     contract_file = relationship("ContractFile", back_populates="versions")
 
 
+class ContractImportJob(Base):
+    """Staged spreadsheet import; rows are committed only after validation."""
+
+    __tablename__ = "contract_import_jobs"
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    original_filename = Column(String(512), nullable=False)
+    file_format = Column(String(16), nullable=False)
+    storage_key = Column(String(1024), nullable=True)
+    rows_json = Column(Text, nullable=False, default="[]")
+    columns_json = Column(Text, nullable=False, default="[]")
+    validation_json = Column(Text, nullable=False, default="{}")
+    status = Column(String(20), nullable=False, default="uploaded", index=True)
+    row_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    validated_at = Column(DateTime(timezone=True), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True, index=True)
+
+
 class AnalysisTemplateVersion(Base):
     __tablename__ = "analysis_template_versions"
     __table_args__ = (
