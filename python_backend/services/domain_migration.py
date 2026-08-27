@@ -99,6 +99,7 @@ def _migrate_template_versions(db: Session, migration_user: User) -> dict[tuple[
     for template in templates:
         if template.organization_id != organization_id:
             template.organization_id = organization_id
+    for template in templates:
         version = (
             template.version if isinstance(template.version, int) and template.version > 0 else 1
         )
