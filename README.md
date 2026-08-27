@@ -45,6 +45,8 @@ npm run test:python
 
 阶段 5 的合同详情、主体联系人关联、履约任务状态机和审计说明见 `STAGE5_CONTRACT_DETAIL.md`。
 
+阶段 6 的提醒通知、履约看板、全局任务查询和幂等扫描说明见 `STAGE6_FULFILLMENT_DASHBOARD.md`。
+
 ## 构建
 
 ```powershell

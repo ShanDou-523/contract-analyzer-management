@@ -20,7 +20,13 @@ import type {
   ContractPartyLink,
   FulfillmentAssignee,
   FulfillmentTask,
+  FulfillmentDashboard,
+  FulfillmentNotification,
+  NotificationStatus,
+  PagedFulfillmentTasks,
+  PagedNotifications,
   Party,
+  ReminderScanResult,
 } from '../types'
 
 let api: AxiosInstance | null = null
@@ -28,7 +34,7 @@ let api: AxiosInstance | null = null
 async function getBaseUrl(): Promise<string> {
   return window.electronAPI
     ? await window.electronAPI.getPythonBaseUrl()
-    : 'http://127.0.0.1:5768'
+    : import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:5768'
 }
 
 export async function initApi(): Promise<AxiosInstance> {
@@ -281,6 +287,54 @@ export async function updateFulfillmentTask(contractId: string, taskId: string, 
 
 export async function listContractOperations(contractId: string): Promise<ContractOperation[]> {
   const { data } = await (await client()).get(`/api/v1/contracts/${contractId}/operations`)
+  return data
+}
+
+export async function getFulfillmentDashboard(): Promise<FulfillmentDashboard> {
+  const { data } = await (await client()).get('/api/v1/fulfillment/dashboard')
+  return data
+}
+
+export async function listFulfillmentTasks(params: {
+  page?: number
+  page_size?: number
+  search?: string
+  status?: string
+  priority?: string
+  assignee_id?: string
+  overdue_only?: boolean
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+} = {}): Promise<PagedFulfillmentTasks> {
+  const { data } = await (await client()).get('/api/v1/fulfillment/tasks', { params })
+  return data
+}
+
+export async function scanFulfillmentReminders(): Promise<ReminderScanResult> {
+  const { data } = await (await client()).post('/api/v1/fulfillment/reminders/scan')
+  return data
+}
+
+export async function listNotifications(params: {
+  page?: number
+  page_size?: number
+  status?: NotificationStatus | ''
+  notification_type?: string
+} = {}): Promise<PagedNotifications> {
+  const { data } = await (await client()).get('/api/v1/notifications', { params })
+  return data
+}
+
+export async function updateNotificationStatus(
+  notificationId: string,
+  status: Exclude<NotificationStatus, 'unread'>,
+): Promise<FulfillmentNotification> {
+  const { data } = await (await client()).patch(`/api/v1/notifications/${notificationId}`, { status })
+  return data
+}
+
+export async function markAllNotificationsRead(): Promise<{ updated: number }> {
+  const { data } = await (await client()).post('/api/v1/notifications/read-all')
   return data
 }
 

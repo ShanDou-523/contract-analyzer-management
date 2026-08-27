@@ -20,6 +20,7 @@ python_backend/*.db
 python_backend/*.db-*
 python_backend/*.bak
 python_backend/uploads/
+python_backend/migration_reports/
 
 # Local tooling files
 .pytest_cache/

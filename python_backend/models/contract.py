@@ -326,6 +326,41 @@ class FulfillmentTask(Base):
     updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
 
     contract = relationship("Contract", back_populates="fulfillment_tasks")
+    notifications = relationship("Notification", back_populates="task")
+
+
+class Notification(Base):
+    """In-app reminder generated from an organization-scoped fulfillment task."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_notifications_dedupe_key"),
+        Index(
+            "ix_notifications_org_recipient_status",
+            "organization_id",
+            "recipient_id",
+            "status",
+        ),
+        Index("ix_notifications_org_task", "organization_id", "task_id"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    recipient_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    contract_id = Column(String(36), ForeignKey("contracts.id"), nullable=False, index=True)
+    task_id = Column(String(36), ForeignKey("fulfillment_tasks.id"), nullable=False, index=True)
+    notification_type = Column(String(20), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="unread", index=True)
+    title = Column(String(300), nullable=False)
+    message = Column(Text, nullable=False, default="")
+    source_at = Column(DateTime(timezone=True), nullable=False)
+    dedupe_key = Column(String(64), nullable=False)
+    metadata_json = Column(Text, nullable=False, default="{}")
+    generated_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    read_at = Column(DateTime(timezone=True), nullable=True)
+    ignored_at = Column(DateTime(timezone=True), nullable=True)
+
+    task = relationship("FulfillmentTask", back_populates="notifications")
 
 
 class AnalysisTemplateVersion(Base):

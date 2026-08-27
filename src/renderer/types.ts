@@ -251,3 +251,77 @@ export interface ContractDetail {
   tasks: FulfillmentTask[]
   operations: ContractOperation[]
 }
+
+export interface FulfillmentTaskListItem extends FulfillmentTask {
+  contract_name: string
+  contract_no: string | null
+  assignee_name: string | null
+}
+
+export interface PagedFulfillmentTasks {
+  items: FulfillmentTaskListItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface AssigneeWorkload {
+  assignee_id: string | null
+  assignee_name: string
+  open_count: number
+  overdue_count: number
+}
+
+export interface FulfillmentDashboard {
+  generated_at: string
+  total_open: number
+  pending: number
+  in_progress: number
+  overdue: number
+  due_today: number
+  due_next_7_days: number
+  unassigned: number
+  completed_last_30_days: number
+  unread_notifications: number
+  status_counts: Array<{ status: TaskStatus; count: number }>
+  priority_counts: Array<{ priority: FulfillmentTask['priority']; count: number }>
+  assignee_workloads: AssigneeWorkload[]
+  upcoming_tasks: FulfillmentTaskListItem[]
+}
+
+export type NotificationStatus = 'unread' | 'read' | 'ignored'
+export type NotificationType = 'reminder' | 'overdue'
+
+export interface FulfillmentNotification {
+  id: string
+  organization_id: string
+  recipient_id: string
+  contract_id: string
+  contract_name: string
+  contract_no: string | null
+  task_id: string
+  task_title: string
+  notification_type: NotificationType
+  status: NotificationStatus
+  title: string
+  message: string
+  source_at: string
+  generated_at: string
+  read_at: string | null
+  ignored_at: string | null
+}
+
+export interface PagedNotifications {
+  items: FulfillmentNotification[]
+  total: number
+  unread: number
+  page: number
+  page_size: number
+}
+
+export interface ReminderScanResult {
+  examined_tasks: number
+  created: number
+  skipped_existing: number
+  skipped_without_recipient: number
+}

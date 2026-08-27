@@ -58,3 +58,43 @@ body {
   border-top: 1px solid #e4e7ed;
   background: #fff;
 }
+
+@media (max-width: 680px) {
+  .app-header {
+    height: auto !important;
+    min-height: 96px;
+    padding: 8px 12px;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .header-left {
+    width: 100%;
+  }
+
+  .app-title {
+    font-size: 18px;
+    white-space: nowrap;
+  }
+
+  .header-right {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .header-right .el-button {
+    min-width: 0;
+    margin-left: 0;
+    padding: 6px 2px;
+    font-size: 12px;
+  }
+
+  .header-right .el-button .el-icon {
+    display: none;
+  }
+
+  .app-main {
+    padding: 12px;
+  }
+}

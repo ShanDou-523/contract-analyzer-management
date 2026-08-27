@@ -33,6 +33,10 @@ async function signOut() {
             <el-icon><Tickets /></el-icon>
             合同台账
           </el-button>
+          <el-button text @click="router.push('/fulfillment')">
+            <el-icon><DataLine /></el-icon>
+            履约看板
+          </el-button>
           <el-button text @click="router.push('/settings')">
             <el-icon><Setting /></el-icon>
             设置
