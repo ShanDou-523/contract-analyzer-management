@@ -325,3 +325,87 @@ export interface ReminderScanResult {
   skipped_existing: number
   skipped_without_recipient: number
 }
+
+export type StructuredAnalysisStatus = 'draft' | 'in_review' | 'approved' | 'rejected' | 'superseded'
+export type AnalysisRiskSeverity = 'low' | 'medium' | 'high' | 'critical'
+export type AnalysisRiskStatus = 'open' | 'accepted' | 'mitigated' | 'dismissed'
+
+export interface StructuredAnalysisField {
+  id: string
+  field_key: string
+  label: string
+  value: unknown
+  value_text: string
+  confidence: number | null
+  position: number
+}
+
+export interface AnalysisEvidence {
+  id: string
+  file_version_id: string
+  page_no: number | null
+  char_start: number | null
+  char_end: number | null
+  quote: string
+  locator: Record<string, unknown>
+  created_at: string
+}
+
+export interface StructuredAnalysisRisk {
+  id: string
+  evidence_id: string | null
+  code: string | null
+  title: string
+  description: string
+  severity: AnalysisRiskSeverity
+  status: AnalysisRiskStatus
+  reviewer_comment: string | null
+  reviewed_by: string | null
+  reviewed_at: string | null
+  created_at: string
+}
+
+export interface StructuredAnalysisResult {
+  id: string
+  organization_id: string
+  contract_id: string
+  analysis_run_id: string
+  source_result_id: string | null
+  file_version_id: string
+  template_version_id: string
+  prompt_type: string
+  version: number
+  status: StructuredAnalysisStatus
+  summary: string
+  created_by: string
+  reviewed_by: string | null
+  review_comment: string | null
+  reviewed_at: string | null
+  created_at: string
+  updated_at: string
+  fields: StructuredAnalysisField[]
+  evidence: AnalysisEvidence[]
+  risks: StructuredAnalysisRisk[]
+}
+
+export interface ContractAnalysisRun {
+  id: string
+  contract_id: string
+  contract_name: string
+  contract_no: string | null
+  file_version_id: string | null
+  file_name: string | null
+  template_version_id: string | null
+  template_name: string | null
+  template_version: number | null
+  task_type: string
+  status: string
+  provider_name: string | null
+  model_name: string | null
+  requested_by: string | null
+  started_at: string | null
+  finished_at: string | null
+  created_at: string
+  raw_result_count: number
+  structured_results: StructuredAnalysisResult[]
+}

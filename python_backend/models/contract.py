@@ -418,3 +418,154 @@ class AnalysisRun(Base):
     contract = relationship("Contract", back_populates="analysis_runs")
     file_version = relationship("FileVersion")
     template_version = relationship("AnalysisTemplateVersion")
+    structured_results = relationship(
+        "StructuredAnalysisResult",
+        back_populates="analysis_run",
+        cascade="all, delete-orphan",
+    )
+
+
+class StructuredAnalysisResult(Base):
+    """Immutable, versioned structured interpretation of one analysis run."""
+
+    __tablename__ = "structured_analysis_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "analysis_run_id",
+            "prompt_type",
+            "version",
+            name="uq_structured_analysis_result_version",
+        ),
+        Index(
+            "ix_structured_results_org_contract_status",
+            "organization_id",
+            "contract_id",
+            "status",
+        ),
+        Index(
+            "ix_structured_results_run_prompt",
+            "analysis_run_id",
+            "prompt_type",
+            "version",
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    contract_id = Column(String(36), ForeignKey("contracts.id"), nullable=False, index=True)
+    analysis_run_id = Column(String(36), ForeignKey("analysis_runs.id"), nullable=False, index=True)
+    source_result_id = Column(String(36), ForeignKey("analysis_results.id"), nullable=True, index=True)
+    file_version_id = Column(String(36), ForeignKey("file_versions.id"), nullable=False, index=True)
+    template_version_id = Column(
+        String(36), ForeignKey("analysis_template_versions.id"), nullable=False, index=True
+    )
+    prompt_type = Column(String(50), nullable=False, index=True)
+    version = Column(Integer, nullable=False)
+    status = Column(String(20), nullable=False, default="draft", index=True)
+    summary = Column(Text, nullable=False, default="")
+    raw_json = Column(Text, nullable=False, default="{}")
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    reviewed_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    review_comment = Column(Text, nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+
+    contract = relationship("Contract")
+    analysis_run = relationship("AnalysisRun", back_populates="structured_results")
+    source_result = relationship("AnalysisResult")
+    file_version = relationship("FileVersion")
+    template_version = relationship("AnalysisTemplateVersion")
+    fields = relationship(
+        "StructuredAnalysisField",
+        back_populates="structured_result",
+        cascade="all, delete-orphan",
+        order_by="StructuredAnalysisField.position",
+    )
+    evidence = relationship(
+        "AnalysisEvidence",
+        back_populates="structured_result",
+        cascade="all, delete-orphan",
+        order_by="AnalysisEvidence.created_at",
+    )
+    risks = relationship(
+        "AnalysisRisk",
+        back_populates="structured_result",
+        cascade="all, delete-orphan",
+        order_by="AnalysisRisk.created_at",
+    )
+
+
+class StructuredAnalysisField(Base):
+    __tablename__ = "structured_analysis_fields"
+    __table_args__ = (Index("ix_structured_fields_result_position", "structured_result_id", "position"),)
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    structured_result_id = Column(
+        String(36), ForeignKey("structured_analysis_results.id"), nullable=False, index=True
+    )
+    field_key = Column(String(128), nullable=False)
+    label = Column(String(200), nullable=False)
+    value_text = Column(Text, nullable=False, default="")
+    value_json = Column(Text, nullable=False, default="null")
+    confidence = Column(Numeric(5, 4), nullable=True)
+    position = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+    structured_result = relationship("StructuredAnalysisResult", back_populates="fields")
+
+
+class AnalysisEvidence(Base):
+    __tablename__ = "analysis_evidence"
+    __table_args__ = (
+        Index("ix_analysis_evidence_result_page", "structured_result_id", "page_no"),
+        Index("ix_analysis_evidence_org_contract", "organization_id", "contract_id"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    contract_id = Column(String(36), ForeignKey("contracts.id"), nullable=False, index=True)
+    structured_result_id = Column(
+        String(36), ForeignKey("structured_analysis_results.id"), nullable=False, index=True
+    )
+    file_version_id = Column(String(36), ForeignKey("file_versions.id"), nullable=False, index=True)
+    page_no = Column(Integer, nullable=True)
+    char_start = Column(Integer, nullable=True)
+    char_end = Column(Integer, nullable=True)
+    quote = Column(Text, nullable=False, default="")
+    locator_json = Column(Text, nullable=False, default="{}")
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+
+    structured_result = relationship("StructuredAnalysisResult", back_populates="evidence")
+    file_version = relationship("FileVersion")
+
+
+class AnalysisRisk(Base):
+    __tablename__ = "analysis_risks"
+    __table_args__ = (
+        Index("ix_analysis_risks_org_contract_status", "organization_id", "contract_id", "status"),
+        Index("ix_analysis_risks_result_severity", "structured_result_id", "severity"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    contract_id = Column(String(36), ForeignKey("contracts.id"), nullable=False, index=True)
+    structured_result_id = Column(
+        String(36), ForeignKey("structured_analysis_results.id"), nullable=False, index=True
+    )
+    evidence_id = Column(String(36), ForeignKey("analysis_evidence.id"), nullable=True, index=True)
+    code = Column(String(100), nullable=True)
+    title = Column(String(300), nullable=False)
+    description = Column(Text, nullable=False, default="")
+    severity = Column(String(20), nullable=False, default="medium", index=True)
+    status = Column(String(20), nullable=False, default="open", index=True)
+    reviewer_comment = Column(Text, nullable=True)
+    reviewed_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime(timezone=True), nullable=True)
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, nullable=False)
+
+    structured_result = relationship("StructuredAnalysisResult", back_populates="risks")
+    evidence = relationship("AnalysisEvidence")

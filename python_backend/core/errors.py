@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import Request
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -36,9 +37,20 @@ async def http_exception_handler(_request: Request, exc: StarletteHTTPException)
 
 
 async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+    details = []
+    for error in exc.errors():
+        item = dict(error)
+        if isinstance(item.get("ctx"), dict):
+            item["ctx"] = {
+                key: str(value) if isinstance(value, BaseException) else value
+                for key, value in item["ctx"].items()
+            }
+        details.append(item)
     return JSONResponse(
         status_code=422,
-        content=error_payload("VALIDATION_ERROR", "请求参数校验失败", exc.errors()),
+        content=jsonable_encoder(
+            error_payload("VALIDATION_ERROR", "请求参数校验失败", details)
+        ),
     )
 
 

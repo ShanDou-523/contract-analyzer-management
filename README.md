@@ -47,6 +47,8 @@ npm run test:python
 
 阶段 6 的提醒通知、履约看板、全局任务查询和幂等扫描说明见 `STAGE6_FULFILLMENT_DASHBOARD.md`。
 
+阶段 7 的结构化分析结果、证据定位、风险项、版本化复核和历史结果兼容说明见 `STAGE7_STRUCTURED_ANALYSIS.md`。
+
 ## 构建
 
 ```powershell

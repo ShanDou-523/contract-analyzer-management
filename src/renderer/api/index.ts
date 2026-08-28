@@ -27,6 +27,9 @@ import type {
   PagedNotifications,
   Party,
   ReminderScanResult,
+  AnalysisRiskStatus,
+  ContractAnalysisRun,
+  StructuredAnalysisResult,
 } from '../types'
 
 let api: AxiosInstance | null = null
@@ -217,6 +220,42 @@ export async function confirmContractImport(jobId: string): Promise<ContractImpo
 
 export async function getContractDetail(id: string): Promise<ContractDetail> {
   const { data } = await (await client()).get(`/api/v1/contracts/${id}/detail`)
+  return data
+}
+
+export async function listContractAnalysisRuns(contractId: string): Promise<ContractAnalysisRun[]> {
+  const { data } = await (await client()).get(`/api/v1/contracts/${contractId}/analysis-runs`)
+  return data
+}
+
+export async function importLegacyStructuredResults(runId: string): Promise<StructuredAnalysisResult[]> {
+  const { data } = await (await client()).post(`/api/v1/analysis-runs/${runId}/structured-results/import-legacy`)
+  return data
+}
+
+export async function submitStructuredResult(runId: string, resultId: string): Promise<StructuredAnalysisResult> {
+  const { data } = await (await client()).post(`/api/v1/analysis-runs/${runId}/structured-results/${resultId}/submit`)
+  return data
+}
+
+export async function reviewStructuredResult(
+  runId: string,
+  resultId: string,
+  decision: 'approved' | 'rejected',
+  comment = '',
+): Promise<StructuredAnalysisResult> {
+  const { data } = await (await client()).post(`/api/v1/analysis-runs/${runId}/structured-results/${resultId}/review`, { decision, comment })
+  return data
+}
+
+export async function updateStructuredRisk(
+  runId: string,
+  resultId: string,
+  riskId: string,
+  status: AnalysisRiskStatus,
+  comment: string,
+): Promise<StructuredAnalysisResult> {
+  const { data } = await (await client()).patch(`/api/v1/analysis-runs/${runId}/structured-results/${resultId}/risks/${riskId}`, { status, comment })
   return data
 }
 
