@@ -57,7 +57,7 @@ def test_stage9_migration_adds_risk_notification_columns(tmp_path: Path):
     alembic_config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
     alembic_config.set_main_option("script_location", str(Path(__file__).parents[1] / "alembic"))
     alembic_config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path}")
-    command.upgrade(alembic_config, "head")
+    command.upgrade(alembic_config, "0009_risk_notifications_reports")
     engine = create_engine(f"sqlite:///{database_path}")
     columns = {item["name"]: item for item in inspect(engine).get_columns("notifications")}
     assert "risk_id" in columns

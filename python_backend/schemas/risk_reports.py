@@ -53,3 +53,26 @@ class PagedRiskContractRankings(BaseModel):
     total: int = Field(ge=0)
     page: int
     page_size: int
+
+
+class RiskReportSnapshotOut(BaseModel):
+    id: str
+    organization_id: str
+    snapshot_date: str
+    total: int
+    active: int
+    overdue: int
+    closed: int
+    critical: int
+    overdue_rate: float
+    contract_rankings: list[RiskContractRanking]
+    assignee_workloads: list[RiskAssigneeWorkload]
+    source_job_id: str | None = None
+    generated_at: datetime
+
+
+class PagedRiskReportSnapshots(BaseModel):
+    items: list[RiskReportSnapshotOut]
+    total: int = Field(ge=0)
+    page: int
+    page_size: int

@@ -55,6 +55,27 @@ class AppSettings(BaseSettings):
         default="", validation_alias=AliasChoices("CONTRACT_ANALYZER_SECRET_KEY")
     )
     redis_url: str = Field(default="", validation_alias=AliasChoices("CONTRACT_ANALYZER_REDIS_URL"))
+    background_worker_enabled: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_BACKGROUND_WORKER_ENABLED"),
+    )
+    background_worker_poll_seconds: float = Field(
+        default=2.0,
+        ge=0.2,
+        le=60,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_BACKGROUND_WORKER_POLL_SECONDS"),
+    )
+    background_job_lock_timeout_seconds: int = Field(
+        default=300,
+        ge=30,
+        le=3600,
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_BACKGROUND_JOB_LOCK_TIMEOUT_SECONDS"),
+    )
+    notification_provider: str = Field(
+        default="fake",
+        pattern=r"^[a-zA-Z0-9_-]+$",
+        validation_alias=AliasChoices("CONTRACT_ANALYZER_NOTIFICATION_PROVIDER"),
+    )
     jwt_secret_key: str = Field(
         default="", validation_alias=AliasChoices("CONTRACT_ANALYZER_JWT_SECRET_KEY")
     )

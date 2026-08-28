@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
-import logging
-from datetime import datetime, timezone
+import uuid
+from datetime import date, datetime, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy import asc, desc, or_
 from sqlalchemy.orm import Session
 
+from config import settings
 from core.security import CurrentPrincipal, get_current_principal, require_roles
-from database import SessionLocal, get_db
-from models.contract import AnalysisRisk, Contract, StructuredAnalysisResult, User
+from database import get_db
+from models.contract import (
+    AnalysisRisk,
+    Contract,
+    RiskReportSnapshot,
+    StructuredAnalysisResult,
+    User,
+)
+from schemas.background_jobs import BackgroundJobOut
 from schemas.risk_reports import (
     PagedRiskContractRankings,
+    PagedRiskReportSnapshots,
     RiskReminderScanQueued,
     RiskReportOverview,
 )
@@ -26,7 +35,8 @@ from schemas.risks import (
     RiskSummary,
 )
 from services.audit_service import record_audit
-from services.risk_notification_service import scan_risk_reminders
+from services.background_job_service import enqueue_job, job_out
+from services.background_worker import JOB_RISK_REMINDER_SCAN, JOB_RISK_SNAPSHOT
 from services.risk_report_service import build_overview, export_csv
 from services.risk_service import (
     ACTIVE_REMEDIATION_STATUSES,
@@ -36,9 +46,9 @@ from services.risk_service import (
     to_ledger_item,
     update_risk,
 )
+from services.risk_snapshot_service import export_snapshots_csv, snapshot_out
 
 router = APIRouter(prefix="/api/v1", tags=["risks"])
-logger = logging.getLogger("contract_analyzer.risks")
 RISK_MANAGE_ROLES = ("system_admin", "org_admin", "contract_manager", "reviewer")
 SORT_COLUMNS = {
     "created_at": AnalysisRisk.created_at,
@@ -60,31 +70,6 @@ def _get_risk_row(db: Session, principal: CurrentPrincipal, risk_id: str):
     return row
 
 
-def _run_risk_reminder_scan(organization_id: str, user_id: str) -> None:
-    db = SessionLocal()
-    try:
-        result = scan_risk_reminders(db, organization_id)
-        record_audit(
-            db,
-            "risk.reminders_scanned",
-            organization_id=organization_id,
-            user_id=user_id,
-            resource_type="risk",
-            details={
-                "examined_risks": result.examined_risks,
-                "created": result.created,
-                "skipped_existing": result.skipped_existing,
-                "skipped_without_recipient": result.skipped_without_recipient,
-            },
-        )
-        db.commit()
-    except Exception:
-        db.rollback()
-        logger.exception("Risk reminder scan failed for organization %s", organization_id)
-    finally:
-        db.close()
-
-
 @router.get("/risks/summary", response_model=RiskSummary)
 def get_risk_summary(
     principal: CurrentPrincipal = Depends(get_current_principal),
@@ -95,10 +80,27 @@ def get_risk_summary(
 
 @router.post("/risks/reminders/scan", response_model=RiskReminderScanQueued, status_code=202)
 def queue_risk_reminder_scan(
-    background_tasks: BackgroundTasks,
     principal: CurrentPrincipal = Depends(require_roles(*RISK_MANAGE_ROLES)),
+    db: Session = Depends(get_db),
 ):
-    background_tasks.add_task(_run_risk_reminder_scan, principal.organization_id, principal.user_id)
+    result = enqueue_job(
+        db,
+        organization_id=principal.organization_id,
+        job_type=JOB_RISK_REMINDER_SCAN,
+        dedupe_key=f"manual:risk-reminder-scan:{principal.organization_id}:{uuid.uuid4()}",
+        payload={"provider_name": settings.notification_provider},
+        requested_by=principal.user_id,
+        priority=20,
+    )
+    record_audit(
+        db,
+        "risk.reminder_scan_queued",
+        organization_id=principal.organization_id,
+        user_id=principal.user_id,
+        resource_type="background_job",
+        resource_id=result.job.id,
+    )
+    db.commit()
     return RiskReminderScanQueued()
 
 
@@ -146,6 +148,88 @@ def export_risk_report(
     filename = f"risk-report-{datetime.now(timezone.utc).date().isoformat()}.csv"
     return StreamingResponse(
         iter([export_csv(overview)]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/risk-reports/snapshots", response_model=BackgroundJobOut, status_code=202)
+def queue_risk_report_snapshot(
+    principal: CurrentPrincipal = Depends(require_roles(*RISK_MANAGE_ROLES)),
+    db: Session = Depends(get_db),
+):
+    snapshot_date = datetime.now(timezone.utc).date().isoformat()
+    result = enqueue_job(
+        db,
+        organization_id=principal.organization_id,
+        job_type=JOB_RISK_SNAPSHOT,
+        dedupe_key=f"manual:risk-report-snapshot:{principal.organization_id}:{uuid.uuid4()}",
+        payload={"snapshot_date": snapshot_date},
+        requested_by=principal.user_id,
+    )
+    record_audit(
+        db,
+        "risk.snapshot_queued",
+        organization_id=principal.organization_id,
+        user_id=principal.user_id,
+        resource_type="background_job",
+        resource_id=result.job.id,
+        details={"snapshot_date": snapshot_date},
+    )
+    db.commit()
+    db.refresh(result.job)
+    return job_out(result.job)
+
+
+@router.get("/risk-reports/snapshots", response_model=PagedRiskReportSnapshots)
+def list_risk_report_snapshots(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=30, ge=1, le=100),
+    date_from: date | None = None,
+    date_to: date | None = None,
+    principal: CurrentPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    query = db.query(RiskReportSnapshot).filter(
+        RiskReportSnapshot.organization_id == principal.organization_id
+    )
+    if date_from:
+        query = query.filter(RiskReportSnapshot.snapshot_date >= date_from)
+    if date_to:
+        query = query.filter(RiskReportSnapshot.snapshot_date <= date_to)
+    total = query.count()
+    snapshots = (
+        query.order_by(RiskReportSnapshot.snapshot_date.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return PagedRiskReportSnapshots(
+        items=[snapshot_out(snapshot) for snapshot in snapshots],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/risk-reports/snapshots/export")
+def export_risk_report_snapshots(
+    date_from: date | None = None,
+    date_to: date | None = None,
+    principal: CurrentPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    query = db.query(RiskReportSnapshot).filter(
+        RiskReportSnapshot.organization_id == principal.organization_id
+    )
+    if date_from:
+        query = query.filter(RiskReportSnapshot.snapshot_date >= date_from)
+    if date_to:
+        query = query.filter(RiskReportSnapshot.snapshot_date <= date_to)
+    snapshots = query.order_by(RiskReportSnapshot.snapshot_date.asc()).all()
+    filename = f"risk-snapshots-{datetime.now(timezone.utc).date().isoformat()}.csv"
+    return StreamingResponse(
+        iter([export_snapshots_csv(snapshots)]),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

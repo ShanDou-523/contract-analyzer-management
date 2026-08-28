@@ -35,6 +35,10 @@ import type {
   RiskSummary,
   RiskReportOverview,
   PagedRiskContractRankings,
+  BackgroundJob,
+  PagedBackgroundJobs,
+  PagedNotificationDeliveries,
+  PagedRiskReportSnapshots,
   RiskReminderScanQueued,
   StructuredAnalysisResult,
 } from '../types'
@@ -295,6 +299,62 @@ export async function scanRiskReminders(): Promise<RiskReminderScanQueued> {
 export async function downloadRiskReport(days = 30): Promise<Blob> {
   const { data } = await (await client()).get('/api/v1/risk-reports/export', {
     params: { days },
+    responseType: 'blob',
+  })
+  return data
+}
+
+export async function listBackgroundJobs(params: {
+  page?: number
+  page_size?: number
+  status?: string
+  job_type?: string
+} = {}): Promise<PagedBackgroundJobs> {
+  const { data } = await (await client()).get('/api/v1/background-jobs', { params })
+  return data
+}
+
+export async function retryBackgroundJob(jobId: string): Promise<BackgroundJob> {
+  const { data } = await (await client()).post(`/api/v1/background-jobs/${jobId}/retry`)
+  return data
+}
+
+export async function queueNotificationDispatch(): Promise<BackgroundJob> {
+  const { data } = await (await client()).post('/api/v1/notification-deliveries/dispatch')
+  return data
+}
+
+export async function listNotificationDeliveries(params: {
+  page?: number
+  page_size?: number
+  status?: string
+  provider_name?: string
+} = {}): Promise<PagedNotificationDeliveries> {
+  const { data } = await (await client()).get('/api/v1/notification-deliveries', { params })
+  return data
+}
+
+export async function queueRiskReportSnapshot(): Promise<BackgroundJob> {
+  const { data } = await (await client()).post('/api/v1/risk-reports/snapshots')
+  return data
+}
+
+export async function listRiskReportSnapshots(params: {
+  page?: number
+  page_size?: number
+  date_from?: string
+  date_to?: string
+} = {}): Promise<PagedRiskReportSnapshots> {
+  const { data } = await (await client()).get('/api/v1/risk-reports/snapshots', { params })
+  return data
+}
+
+export async function downloadRiskReportSnapshots(params: {
+  date_from?: string
+  date_to?: string
+} = {}): Promise<Blob> {
+  const { data } = await (await client()).get('/api/v1/risk-reports/snapshots/export', {
+    params,
     responseType: 'blob',
   })
   return data

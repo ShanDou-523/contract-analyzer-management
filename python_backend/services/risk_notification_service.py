@@ -26,6 +26,7 @@ class RiskReminderScanResult:
     created: int
     skipped_existing: int
     skipped_without_recipient: int
+    notification_ids: tuple[str, ...] = ()
 
 
 def _dedupe_key(risk_id: str, recipient_id: str, notification_type: str, source_at: datetime) -> str:
@@ -107,12 +108,12 @@ def scan_risk_reminders(
         }
 
     created = 0
+    notification_ids: list[str] = []
     for risk, contract, recipient, notification_type, source_at, dedupe_key in keyed_candidates:
         if dedupe_key in existing_keys:
             continue
         overdue = notification_type == "risk_overdue"
-        db.add(
-            Notification(
+        notification = Notification(
                 organization_id=organization_id,
                 recipient_id=recipient.id,
                 contract_id=contract.id,
@@ -138,7 +139,9 @@ def scan_risk_reminders(
                 ),
                 generated_at=scan_at,
             )
-        )
+        db.add(notification)
+        db.flush()
+        notification_ids.append(notification.id)
         existing_keys.add(dedupe_key)
         created += 1
     db.flush()
@@ -147,4 +150,5 @@ def scan_risk_reminders(
         created=created,
         skipped_existing=len(keyed_candidates) - created,
         skipped_without_recipient=skipped_without_recipient,
+        notification_ids=tuple(notification_ids),
     )

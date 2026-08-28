@@ -364,6 +364,7 @@ class Notification(Base):
 
     task = relationship("FulfillmentTask", back_populates="notifications")
     risk = relationship("AnalysisRisk", back_populates="notifications")
+    deliveries = relationship("NotificationDelivery", back_populates="notification")
 
 
 class AnalysisTemplateVersion(Base):
@@ -579,3 +580,93 @@ class AnalysisRisk(Base):
     structured_result = relationship("StructuredAnalysisResult", back_populates="risks")
     evidence = relationship("AnalysisEvidence")
     notifications = relationship("Notification", back_populates="risk")
+
+
+class BackgroundJob(Base):
+    """Durable organization-scoped work item processed outside request transactions."""
+
+    __tablename__ = "background_jobs"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_background_jobs_dedupe_key"),
+        Index("ix_background_jobs_claim", "status", "available_at", "priority"),
+        Index("ix_background_jobs_org_created", "organization_id", "created_at"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    job_type = Column(String(50), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="queued", index=True)
+    priority = Column(Integer, nullable=False, default=0)
+    payload_json = Column(Text, nullable=False, default="{}")
+    result_json = Column(Text, nullable=False, default="{}")
+    dedupe_key = Column(String(160), nullable=False)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=3)
+    available_at = Column(DateTime(timezone=True), nullable=False, default=_now, index=True)
+    locked_at = Column(DateTime(timezone=True), nullable=True, index=True)
+    locked_by = Column(String(100), nullable=True)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    requested_by = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    error_code = Column(String(100), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+
+
+class NotificationDelivery(Base):
+    """Latest delivery state for one notification/provider pair."""
+
+    __tablename__ = "notification_deliveries"
+    __table_args__ = (
+        UniqueConstraint(
+            "notification_id", "provider_name", name="uq_notification_delivery_provider"
+        ),
+        Index(
+            "ix_notification_deliveries_org_status", "organization_id", "status", "updated_at"
+        ),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    notification_id = Column(String(36), ForeignKey("notifications.id"), nullable=False, index=True)
+    background_job_id = Column(String(36), ForeignKey("background_jobs.id"), nullable=True, index=True)
+    provider_name = Column(String(50), nullable=False, default="fake", index=True)
+    channel = Column(String(30), nullable=False, default="fake")
+    status = Column(String(20), nullable=False, default="queued", index=True)
+    attempt_count = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=3)
+    last_error = Column(Text, nullable=True)
+    provider_message_id = Column(String(200), nullable=True)
+    next_retry_at = Column(DateTime(timezone=True), nullable=True)
+    sent_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+
+    notification = relationship("Notification", back_populates="deliveries")
+
+
+class RiskReportSnapshot(Base):
+    """Daily immutable-style aggregate for historical risk trend reporting."""
+
+    __tablename__ = "risk_report_snapshots"
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "snapshot_date", name="uq_risk_snapshot_org_date"
+        ),
+        Index("ix_risk_snapshots_org_date", "organization_id", "snapshot_date"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    snapshot_date = Column(Date, nullable=False, index=True)
+    total = Column(Integer, nullable=False, default=0)
+    active = Column(Integer, nullable=False, default=0)
+    overdue = Column(Integer, nullable=False, default=0)
+    closed = Column(Integer, nullable=False, default=0)
+    critical = Column(Integer, nullable=False, default=0)
+    overdue_rate = Column(Numeric(8, 4), nullable=False, default=0)
+    contract_rankings_json = Column(Text, nullable=False, default="[]")
+    assignee_workloads_json = Column(Text, nullable=False, default="[]")
+    source_job_id = Column(String(36), ForeignKey("background_jobs.id"), nullable=True, index=True)
+    generated_at = Column(DateTime(timezone=True), nullable=False, default=_now)

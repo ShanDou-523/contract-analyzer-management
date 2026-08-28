@@ -514,3 +514,87 @@ export interface PagedRiskContractRankings {
   page: number
   page_size: number
 }
+
+export type BackgroundJobStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+
+export interface BackgroundJob {
+  id: string
+  organization_id: string
+  job_type: string
+  status: BackgroundJobStatus
+  priority: number
+  payload: Record<string, unknown>
+  result: Record<string, unknown>
+  attempts: number
+  max_attempts: number
+  available_at: string
+  locked_at: string | null
+  locked_by: string | null
+  started_at: string | null
+  finished_at: string | null
+  requested_by: string | null
+  error_code: string | null
+  error_message: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PagedBackgroundJobs {
+  items: BackgroundJob[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export type NotificationDeliveryStatus = 'queued' | 'delivering' | 'sent' | 'failed'
+
+export interface NotificationDelivery {
+  id: string
+  organization_id: string
+  notification_id: string
+  notification_title: string
+  recipient_id: string
+  recipient_name: string
+  background_job_id: string | null
+  provider_name: string
+  channel: string
+  status: NotificationDeliveryStatus
+  attempt_count: number
+  max_attempts: number
+  last_error: string | null
+  provider_message_id: string | null
+  next_retry_at: string | null
+  sent_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PagedNotificationDeliveries {
+  items: NotificationDelivery[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface RiskReportSnapshot {
+  id: string
+  organization_id: string
+  snapshot_date: string
+  total: number
+  active: number
+  overdue: number
+  closed: number
+  critical: number
+  overdue_rate: number
+  contract_rankings: RiskContractRanking[]
+  assignee_workloads: RiskAssigneeWorkload[]
+  source_job_id: string | null
+  generated_at: string
+}
+
+export interface PagedRiskReportSnapshots {
+  items: RiskReportSnapshot[]
+  total: number
+  page: number
+  page_size: number
+}

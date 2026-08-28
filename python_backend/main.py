@@ -19,6 +19,7 @@ from database import engine, init_db
 from routers.analysis import router as analysis_router
 from routers.analysis_templates import router as analysis_templates_router
 from routers.auth import router as auth_router
+from routers.background_jobs import router as background_jobs_router
 from routers.contracts import router as contracts_router
 from routers.documents import router as documents_router
 from routers.export import router as export_router
@@ -40,9 +41,23 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing database environment=%s", settings.environment)
     init_db()
     logger.info("Database ready")
+    worker = None
+    if settings.background_worker_enabled:
+        from services.background_worker import BackgroundWorker
+
+        worker = BackgroundWorker(
+            poll_seconds=settings.background_worker_poll_seconds,
+            lock_timeout_seconds=settings.background_job_lock_timeout_seconds,
+            provider_name=settings.notification_provider,
+        )
+        worker.start()
     logger.info("Server starting on http://%s:%s", SERVER_HOST, SERVER_PORT)
-    yield
-    logger.info("Server shutting down")
+    try:
+        yield
+    finally:
+        if worker:
+            worker.stop()
+        logger.info("Server shutting down")
 
 
 app = FastAPI(
@@ -70,6 +85,7 @@ app.include_router(settings_router)
 app.include_router(export_router)
 app.include_router(analysis_templates_router)
 app.include_router(auth_router)
+app.include_router(background_jobs_router)
 app.include_router(contracts_router)
 app.include_router(fulfillment_router)
 app.include_router(notifications_router)

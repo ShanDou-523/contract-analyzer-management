@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Search, Edit, WarningFilled, Bell, Download } from '@element-plus/icons-vue'
-import { downloadRiskReport, getRiskReportOverview, getRiskSummary, listFulfillmentAssignees, listRisks, scanRiskReminders, updateRiskRemediation } from '../api'
+import { ElMessage } from 'element-plus'
+import { Refresh, Search, Edit, WarningFilled, Bell, Download, Camera, Promotion, RefreshRight } from '@element-plus/icons-vue'
+import { downloadRiskReport, downloadRiskReportSnapshots, getRiskReportOverview, getRiskSummary, listBackgroundJobs, listFulfillmentAssignees, listNotificationDeliveries, listRiskReportSnapshots, listRisks, queueNotificationDispatch, queueRiskReportSnapshot, retryBackgroundJob, scanRiskReminders, updateRiskRemediation } from '../api'
 import { useAuthStore } from '../stores/auth'
-import type { FulfillmentAssignee, RiskLedgerItem, RiskReportOverview, RiskSummary } from '../types'
+import type { BackgroundJob, FulfillmentAssignee, PagedBackgroundJobs, PagedNotificationDeliveries, PagedRiskReportSnapshots, RiskLedgerItem, RiskReportOverview, RiskSummary } from '../types'
 
 const auth = useAuthStore()
 const route = useRoute()
@@ -13,6 +13,9 @@ const loading = ref(false)
 const saving = ref(false)
 const scanning = ref(false)
 const reportLoading = ref(false)
+const operationsLoading = ref(false)
+const snapshotting = ref(false)
+const dispatching = ref(false)
 const risks = ref<RiskLedgerItem[]>([])
 const assignees = ref<FulfillmentAssignee[]>([])
 const summary = ref<RiskSummary>({ total: 0, open: 0, in_progress: 0, accepted: 0, mitigated: 0, dismissed: 0, closed: 0, overdue: 0, by_severity: [], by_status: [] })
@@ -23,6 +26,13 @@ const filters = reactive({ search: '', status: '', severity: '', contract_id: ''
 const dialogVisible = ref(false)
 const selectedRisk = ref<RiskLedgerItem | null>(null)
 const report = ref<RiskReportOverview | null>(null)
+const operationsTab = ref('snapshots')
+const snapshotPage = ref(1)
+const jobPage = ref(1)
+const deliveryPage = ref(1)
+const snapshots = ref<PagedRiskReportSnapshots>({ items: [], total: 0, page: 1, page_size: 30 })
+const jobs = ref<PagedBackgroundJobs>({ items: [], total: 0, page: 1, page_size: 20 })
+const deliveries = ref<PagedNotificationDeliveries>({ items: [], total: 0, page: 1, page_size: 20 })
 const form = reactive({ status: '', assignee_id: '', remediation_due_at: '', remediation_notes: '', comment: '' })
 
 const canManage = computed(() => auth.user?.roles.some((role) => ['system_admin', 'org_admin', 'contract_manager', 'reviewer'].includes(role)) || false)
@@ -48,6 +58,10 @@ function severityLabel(severity: string) { return severityOptions.find((item) =>
 function statusType(status: string) { return status === 'closed' || status === 'mitigated' ? 'success' : status === 'dismissed' || status === 'accepted' ? 'info' : status === 'in_progress' ? 'warning' : 'danger' }
 function severityType(severity: string) { return severity === 'critical' || severity === 'high' ? 'danger' : severity === 'medium' ? 'warning' : 'info' }
 function formatDate(value: string | null) { return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '-' }
+function jobStatusLabel(status: string) { return { queued: '排队中', running: '执行中', succeeded: '已完成', failed: '失败', cancelled: '已取消' }[status] || status }
+function jobStatusType(status: string) { return status === 'succeeded' ? 'success' : status === 'failed' ? 'danger' : status === 'running' ? 'warning' : 'info' }
+function deliveryStatusLabel(status: string) { return { queued: '待投递', delivering: '投递中', sent: '已发送', failed: '失败' }[status] || status }
+function jobTypeLabel(type: string) { return { risk_reminder_scan: '风险提醒扫描', notification_dispatch: '通知投递调度', notification_delivery: '通知投递', risk_report_snapshot: '风险日报快照' }[type] || type }
 
 async function load() {
   loading.value = true
@@ -73,8 +87,24 @@ async function loadReport() {
   }
 }
 
+async function loadOperations() {
+  operationsLoading.value = true
+  try {
+    const [snapshotResult, jobResult, deliveryResult] = await Promise.all([
+      listRiskReportSnapshots({ page: snapshotPage.value, page_size: 30 }),
+      listBackgroundJobs({ page: jobPage.value, page_size: 20 }),
+      listNotificationDeliveries({ page: deliveryPage.value, page_size: 20 }),
+    ])
+    snapshots.value = snapshotResult
+    jobs.value = jobResult
+    deliveries.value = deliveryResult
+  } finally {
+    operationsLoading.value = false
+  }
+}
+
 async function refreshAll() {
-  await Promise.all([load(), loadReport()])
+  await Promise.all([load(), loadReport(), loadOperations()])
 }
 
 async function scanReminders() {
@@ -82,20 +112,57 @@ async function scanReminders() {
   try {
     await scanRiskReminders()
     ElMessage.success('风险提醒扫描已排队')
-    await Promise.all([load(), loadReport()])
+    await loadOperations()
   } finally {
     scanning.value = false
   }
 }
 
-async function exportReport() {
-  const blob = await downloadRiskReport(30)
+async function createSnapshot() {
+  snapshotting.value = true
+  try {
+    await queueRiskReportSnapshot()
+    ElMessage.success('风险日报快照已排队')
+    await loadOperations()
+  } finally {
+    snapshotting.value = false
+  }
+}
+
+async function dispatchNotifications() {
+  dispatching.value = true
+  try {
+    await queueNotificationDispatch()
+    ElMessage.success('通知投递调度已排队')
+    await loadOperations()
+  } finally {
+    dispatching.value = false
+  }
+}
+
+async function retryJob(job: BackgroundJob) {
+  await retryBackgroundJob(job.id)
+  ElMessage.success('失败任务已重新排队')
+  await loadOperations()
+}
+
+function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
-  anchor.download = `risk-report-${new Date().toISOString().slice(0, 10)}.csv`
+  anchor.download = filename
   anchor.click()
   URL.revokeObjectURL(url)
+}
+
+async function exportReport() {
+  const blob = await downloadRiskReport(30)
+  saveBlob(blob, `risk-report-${new Date().toISOString().slice(0, 10)}.csv`)
+}
+
+async function exportSnapshotHistory() {
+  const blob = await downloadRiskReportSnapshots()
+  saveBlob(blob, `risk-snapshots-${new Date().toISOString().slice(0, 10)}.csv`)
 }
 
 function applyFilters() { page.value = 1; load() }
@@ -136,20 +203,9 @@ async function save() {
   }
 }
 
-async function closeRisk(risk: RiskLedgerItem) {
-  await ElMessageBox.confirm(`确认关闭“${risk.title}”？关闭后仍可由复核人员重新打开。`, '关闭风险', { type: 'warning' })
-  selectedRisk.value = risk
-  form.status = 'closed'
-  form.assignee_id = risk.assignee_id || ''
-  form.remediation_due_at = risk.remediation_due_at ? risk.remediation_due_at.slice(0, 16).replace('T', ' ') : ''
-  form.remediation_notes = risk.remediation_notes || ''
-  form.comment = ''
-  dialogVisible.value = true
-}
-
 onMounted(async () => {
   filters.contract_id = typeof route.query.contract_id === 'string' ? route.query.contract_id : ''
-  await Promise.all([load(), loadReport(), listFulfillmentAssignees().then((value) => { assignees.value = value })])
+  await Promise.all([load(), loadReport(), loadOperations(), listFulfillmentAssignees().then((value) => { assignees.value = value })])
 })
 </script>
 
@@ -232,6 +288,55 @@ onMounted(async () => {
       </div>
     </section>
 
+    <section v-loading="operationsLoading" class="operations-section">
+      <div class="report-heading"><div><h3>自动化与历史</h3></div><el-button text :icon="Refresh" @click="loadOperations">刷新</el-button></div>
+      <el-tabs v-model="operationsTab">
+        <el-tab-pane :label="`日报快照 (${snapshots.total})`" name="snapshots">
+          <div class="operations-toolbar">
+            <el-button v-if="canManage" type="primary" :icon="Camera" :loading="snapshotting" @click="createSnapshot">生成今日快照</el-button>
+            <el-button :icon="Download" @click="exportSnapshotHistory">导出历史</el-button>
+          </div>
+          <el-table :data="snapshots.items" stripe empty-text="暂无日报快照">
+            <el-table-column prop="snapshot_date" label="日期" width="120" />
+            <el-table-column prop="total" label="风险总数" width="90" />
+            <el-table-column prop="active" label="待处置" width="90" />
+            <el-table-column prop="overdue" label="逾期" width="80" />
+            <el-table-column label="逾期率" width="90"><template #default="{ row }"><span :class="{ danger: row.overdue_rate > 0 }">{{ row.overdue_rate.toFixed(1) }}%</span></template></el-table-column>
+            <el-table-column prop="critical" label="严重风险" width="90" />
+            <el-table-column prop="closed" label="已关闭" width="90" />
+            <el-table-column label="生成时间" min-width="170"><template #default="{ row }">{{ formatDate(row.generated_at) }}</template></el-table-column>
+          </el-table>
+          <el-pagination v-model:current-page="snapshotPage" class="pagination" layout="total, prev, pager, next" :page-size="30" :total="snapshots.total" @current-change="loadOperations" />
+        </el-tab-pane>
+
+        <el-tab-pane :label="`后台任务 (${jobs.total})`" name="jobs">
+          <el-table :data="jobs.items" stripe empty-text="暂无后台任务">
+            <el-table-column label="任务" min-width="190"><template #default="{ row }"><strong>{{ jobTypeLabel(row.job_type) }}</strong><div class="muted mono">{{ row.id }}</div></template></el-table-column>
+            <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="jobStatusType(row.status)">{{ jobStatusLabel(row.status) }}</el-tag></template></el-table-column>
+            <el-table-column label="尝试" width="80"><template #default="{ row }">{{ row.attempts }}/{{ row.max_attempts }}</template></el-table-column>
+            <el-table-column label="错误" min-width="220"><template #default="{ row }"><span v-if="row.error_message" class="danger">{{ row.error_message }}</span><span v-else class="muted">-</span></template></el-table-column>
+            <el-table-column label="创建时间" width="170"><template #default="{ row }">{{ formatDate(row.created_at) }}</template></el-table-column>
+            <el-table-column v-if="canManage" label="操作" width="90" fixed="right"><template #default="{ row }"><el-button v-if="row.status === 'failed'" text type="primary" :icon="RefreshRight" @click="retryJob(row)">重试</el-button></template></el-table-column>
+          </el-table>
+          <el-pagination v-model:current-page="jobPage" class="pagination" layout="total, prev, pager, next" :page-size="20" :total="jobs.total" @current-change="loadOperations" />
+        </el-tab-pane>
+
+        <el-tab-pane :label="`通知投递 (${deliveries.total})`" name="deliveries">
+          <div class="operations-toolbar"><el-button v-if="canManage" type="primary" :icon="Promotion" :loading="dispatching" @click="dispatchNotifications">调度待投递通知</el-button></div>
+          <el-table :data="deliveries.items" stripe empty-text="暂无通知投递记录">
+            <el-table-column label="通知" min-width="260"><template #default="{ row }"><strong>{{ row.notification_title }}</strong><div class="muted">{{ row.recipient_name }}</div></template></el-table-column>
+            <el-table-column prop="provider_name" label="Provider" width="100" />
+            <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="jobStatusType(row.status === 'sent' ? 'succeeded' : row.status === 'delivering' ? 'running' : row.status)">{{ deliveryStatusLabel(row.status) }}</el-tag></template></el-table-column>
+            <el-table-column label="尝试" width="80"><template #default="{ row }">{{ row.attempt_count }}/{{ row.max_attempts }}</template></el-table-column>
+            <el-table-column label="Provider 消息 ID" min-width="190"><template #default="{ row }"><span class="mono">{{ row.provider_message_id || '-' }}</span></template></el-table-column>
+            <el-table-column label="错误" min-width="210"><template #default="{ row }"><span :class="{ danger: row.last_error }">{{ row.last_error || '-' }}</span></template></el-table-column>
+            <el-table-column label="更新时间" width="170"><template #default="{ row }">{{ formatDate(row.updated_at) }}</template></el-table-column>
+          </el-table>
+          <el-pagination v-model:current-page="deliveryPage" class="pagination" layout="total, prev, pager, next" :page-size="20" :total="deliveries.total" @current-change="loadOperations" />
+        </el-tab-pane>
+      </el-tabs>
+    </section>
+
     <el-dialog v-model="dialogVisible" title="风险整改" width="620px">
       <template v-if="selectedRisk">
         <div class="risk-context"><strong>{{ selectedRisk.title }}</strong><span>{{ selectedRisk.contract_name }}</span></div>
@@ -273,12 +378,15 @@ onMounted(async () => {
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 .pagination { justify-content: flex-end; margin-top: 18px; }
 .report-section { margin-top: 18px; padding: 18px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; }
+.operations-section { margin-top: 18px; padding: 18px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; }
 .report-heading { justify-content: space-between; margin-bottom: 14px; }
 .report-heading h3 { margin: 0 0 4px; }
 .report-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
 .report-panel { min-width: 0; }
 .report-panel-wide { grid-column: 1 / -1; }
 .section-title { margin-bottom: 8px; font-weight: 600; color: #303133; }
+.operations-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+.mono { font-family: Consolas, 'Courier New', monospace; font-size: 12px; }
 @media (max-width: 760px) { .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .summary-grid div { border-bottom: 1px solid #e5e7eb; } .summary-grid div:last-child { border-right: 1px solid #e5e7eb; } .filters .el-input, .filters .el-select { width: 100%; } .form-grid { grid-template-columns: 1fr; } }
 @media (max-width: 900px) { .report-grid { grid-template-columns: 1fr; } .report-panel-wide { grid-column: auto; } }
 </style>
