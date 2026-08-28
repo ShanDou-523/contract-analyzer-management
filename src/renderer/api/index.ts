@@ -29,6 +29,10 @@ import type {
   ReminderScanResult,
   AnalysisRiskStatus,
   ContractAnalysisRun,
+  ContractRisksOut,
+  PagedRisks,
+  RiskLedgerItem,
+  RiskSummary,
   StructuredAnalysisResult,
 } from '../types'
 
@@ -256,6 +260,46 @@ export async function updateStructuredRisk(
   comment: string,
 ): Promise<StructuredAnalysisResult> {
   const { data } = await (await client()).patch(`/api/v1/analysis-runs/${runId}/structured-results/${resultId}/risks/${riskId}`, { status, comment })
+  return data
+}
+
+export async function getRiskSummary(): Promise<RiskSummary> {
+  const { data } = await (await client()).get('/api/v1/risks/summary')
+  return data
+}
+
+export async function listRisks(params: {
+  page?: number
+  page_size?: number
+  search?: string
+  status?: string
+  severity?: string
+  contract_id?: string
+  assignee_id?: string
+  overdue_only?: boolean
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+} = {}): Promise<PagedRisks> {
+  const { data } = await (await client()).get('/api/v1/risks', { params })
+  return data
+}
+
+export async function listContractRisks(contractId: string, params: { page?: number; page_size?: number } = {}): Promise<ContractRisksOut> {
+  const { data } = await (await client()).get(`/api/v1/contracts/${contractId}/risks`, { params })
+  return data
+}
+
+export async function updateRiskRemediation(
+  riskId: string,
+  payload: {
+    status?: string
+    assignee_id?: string | null
+    remediation_due_at?: string | null
+    remediation_notes?: string | null
+    comment?: string
+  },
+): Promise<RiskLedgerItem> {
+  const { data } = await (await client()).patch(`/api/v1/risks/${riskId}`, payload)
   return data
 }
 

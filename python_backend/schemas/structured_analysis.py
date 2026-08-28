@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field, model_validator
 
 StructuredStatus = Literal["draft", "in_review", "approved", "rejected", "superseded"]
 RiskSeverity = Literal["low", "medium", "high", "critical"]
-RiskStatus = Literal["open", "accepted", "mitigated", "dismissed"]
+RiskStatus = Literal["open", "in_progress", "accepted", "mitigated", "dismissed", "closed"]
 
 
 class StructuredFieldInput(BaseModel):
@@ -80,7 +80,7 @@ class RiskStatusUpdate(BaseModel):
 
     @model_validator(mode="after")
     def require_resolution_comment(self):
-        if self.status != "open" and not self.comment.strip():
+        if self.status in {"accepted", "mitigated", "dismissed", "closed"} and not self.comment.strip():
             raise ValueError("处置风险项必须填写复核意见")
         return self
 
@@ -114,9 +114,16 @@ class RiskOut(BaseModel):
     description: str
     severity: RiskSeverity
     status: RiskStatus
+    assignee_id: str | None = None
+    remediation_due_at: datetime | None = None
+    remediation_notes: str | None = None
     reviewer_comment: str | None = None
     reviewed_by: str | None = None
     reviewed_at: datetime | None = None
+    closed_by: str | None = None
+    closed_at: datetime | None = None
+    closure_comment: str | None = None
+    is_overdue: bool = False
     created_at: datetime
 
 

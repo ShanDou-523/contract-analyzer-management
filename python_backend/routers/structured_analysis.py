@@ -24,6 +24,7 @@ from schemas.structured_analysis import (
     StructuredRevisionCreate,
 )
 from services.audit_service import record_audit
+from services.risk_service import update_risk
 from services.structured_analysis_service import (
     create_result_version,
     get_run_for_organization,
@@ -100,9 +101,25 @@ def _result_out(result: StructuredAnalysisResult) -> StructuredResultOut:
                 description=risk.description,
                 severity=risk.severity,
                 status=risk.status,
+                assignee_id=risk.assignee_id,
+                remediation_due_at=risk.remediation_due_at,
+                remediation_notes=risk.remediation_notes,
                 reviewer_comment=risk.reviewer_comment,
                 reviewed_by=risk.reviewed_by,
                 reviewed_at=risk.reviewed_at,
+                closed_by=risk.closed_by,
+                closed_at=risk.closed_at,
+                closure_comment=risk.closure_comment,
+                is_overdue=(
+                    risk.status in {"open", "in_progress"}
+                    and risk.remediation_due_at is not None
+                    and (
+                        risk.remediation_due_at.replace(tzinfo=timezone.utc)
+                        if risk.remediation_due_at.tzinfo is None
+                        else risk.remediation_due_at
+                    )
+                    < datetime.now(timezone.utc)
+                ),
                 created_at=risk.created_at,
             )
             for risk in result.risks
@@ -440,10 +457,13 @@ def update_analysis_risk(
     )
     if risk is None:
         raise HTTPException(status_code=404, detail="风险项不存在")
-    risk.status = data.status
-    risk.reviewer_comment = data.comment.strip() or None
-    risk.reviewed_by = principal.user_id
-    risk.reviewed_at = datetime.now(timezone.utc)
+    update_risk(
+        risk,
+        user_id=principal.user_id,
+        roles=principal.roles,
+        status=data.status,
+        comment=data.comment,
+    )
     record_audit(
         db,
         "analysis.risk_reviewed",

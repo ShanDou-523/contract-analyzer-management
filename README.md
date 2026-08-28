@@ -49,6 +49,8 @@ npm run test:python
 
 阶段 7 的结构化分析结果、证据定位、风险项、版本化复核和历史结果兼容说明见 `STAGE7_STRUCTURED_ANALYSIS.md`。
 
+阶段 8 的合同风险台账、整改闭环、负责人和复核协作说明见 `STAGE8_RISK_LEDGER.md`。
+
 ## 构建
 
 ```powershell

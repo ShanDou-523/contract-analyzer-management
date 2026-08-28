@@ -328,7 +328,7 @@ export interface ReminderScanResult {
 
 export type StructuredAnalysisStatus = 'draft' | 'in_review' | 'approved' | 'rejected' | 'superseded'
 export type AnalysisRiskSeverity = 'low' | 'medium' | 'high' | 'critical'
-export type AnalysisRiskStatus = 'open' | 'accepted' | 'mitigated' | 'dismissed'
+export type AnalysisRiskStatus = 'open' | 'in_progress' | 'accepted' | 'mitigated' | 'dismissed' | 'closed'
 
 export interface StructuredAnalysisField {
   id: string
@@ -359,9 +359,16 @@ export interface StructuredAnalysisRisk {
   description: string
   severity: AnalysisRiskSeverity
   status: AnalysisRiskStatus
+  assignee_id: string | null
+  remediation_due_at: string | null
+  remediation_notes: string | null
   reviewer_comment: string | null
   reviewed_by: string | null
   reviewed_at: string | null
+  closed_by: string | null
+  closed_at: string | null
+  closure_comment: string | null
+  is_overdue: boolean
   created_at: string
 }
 
@@ -408,4 +415,52 @@ export interface ContractAnalysisRun {
   created_at: string
   raw_result_count: number
   structured_results: StructuredAnalysisResult[]
+}
+
+export interface RiskLedgerItem extends StructuredAnalysisRisk {
+  organization_id: string
+  contract_id: string
+  contract_name: string
+  contract_no: string | null
+  structured_result_id: string
+  prompt_type: string
+  result_version: number
+  assignee_name: string | null
+  updated_at: string
+}
+
+export interface PagedRisks {
+  items: RiskLedgerItem[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface RiskCount {
+  key: string
+  count: number
+}
+
+export interface RiskSummary {
+  total: number
+  open: number
+  in_progress: number
+  accepted: number
+  mitigated: number
+  dismissed: number
+  closed: number
+  overdue: number
+  by_severity: RiskCount[]
+  by_status: RiskCount[]
+}
+
+export interface ContractRiskSummary extends RiskSummary {
+  contract_id: string
+  contract_name: string
+  contract_no: string | null
+}
+
+export interface ContractRisksOut {
+  summary: ContractRiskSummary
+  items: RiskLedgerItem[]
 }

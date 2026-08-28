@@ -25,6 +25,7 @@ from routers.export import router as export_router
 from routers.fulfillment import router as fulfillment_router
 from routers.notifications import router as notifications_router
 from routers.ocr import router as ocr_router
+from routers.risks import router as risks_router
 from routers.settings import router as settings_router
 from routers.structured_analysis import router as structured_analysis_router
 from routers.users import router as users_router
@@ -73,6 +74,7 @@ app.include_router(contracts_router)
 app.include_router(fulfillment_router)
 app.include_router(notifications_router)
 app.include_router(structured_analysis_router)
+app.include_router(risks_router)
 app.include_router(users_router)
 
 

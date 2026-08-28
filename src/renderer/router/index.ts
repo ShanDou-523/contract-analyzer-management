@@ -24,6 +24,11 @@ const router = createRouter({
       component: () => import('../views/FulfillmentView.vue'),
     },
     {
+      path: '/risks',
+      name: 'risks',
+      component: () => import('../views/RiskLedgerView.vue'),
+    },
+    {
       path: '/documents/:id',
       name: 'results',
       component: () => import('../views/ResultsView.vue'),

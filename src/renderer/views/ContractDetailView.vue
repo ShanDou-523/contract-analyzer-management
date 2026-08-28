@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Check, Plus, Refresh, UserFilled } from '@element-plus/icons-vue'
+import { ArrowLeft, Check, Edit, Plus, Refresh, UserFilled } from '@element-plus/icons-vue'
 import { useAuthStore } from '../stores/auth'
 import {
   createFulfillmentTask,
@@ -12,18 +12,21 @@ import {
   importLegacyStructuredResults,
   linkContractParty,
   listContractAnalysisRuns,
+  listContractRisks,
   listFulfillmentAssignees,
   listParties,
   unlinkContractParty,
   reviewStructuredResult,
   submitStructuredResult,
   updateStructuredRisk,
+  updateRiskRemediation,
   updateFulfillmentTask,
 } from '../api'
 import type {
   AnalysisRiskStatus,
   ContractAnalysisRun,
   ContractDetail,
+  ContractRiskSummary,
   FulfillmentAssignee,
   FulfillmentTask,
   Party,
@@ -45,6 +48,7 @@ const taskDialog = ref(false)
 const saving = ref(false)
 const analysisSaving = ref(false)
 const analysisRuns = ref<ContractAnalysisRun[]>([])
+const riskSummary = ref<ContractRiskSummary | null>(null)
 const selectedRunId = ref('')
 const parties = ref<Party[]>([])
 const users = ref<FulfillmentAssignee[]>([])
@@ -54,12 +58,16 @@ const partyMode = ref<'existing' | 'new'>('existing')
 const partyForm = reactive({ name: '', party_type: 'party_a' as PartyType, tax_no: '', phone: '', email: '', role: 'party_a' as PartyType, notes: '' })
 const contactForm = reactive({ name: '', title: '', phone: '', email: '', is_primary: true })
 const taskForm = reactive({ title: '', description: '', task_type: 'other', priority: 'medium', assignee_id: '', due_at: '', remind_at: '' })
+const riskDialog = ref(false)
+const selectedRisk = ref<StructuredAnalysisRisk | null>(null)
+const riskForm = reactive({ status: 'open', assignee_id: '', remediation_due_at: '', remediation_notes: '', comment: '' })
 
 const pendingTasks = computed(() => detail.value?.tasks.filter((task) => !['completed', 'cancelled'].includes(task.status)).length || 0)
 const overdueTasks = computed(() => detail.value?.tasks.filter((task) => task.is_overdue).length || 0)
 const canManage = computed(() => auth.user?.roles.some((role) => ['system_admin', 'org_admin', 'contract_manager'].includes(role)) || false)
 const canStructure = computed(() => auth.user?.roles.some((role) => ['system_admin', 'org_admin', 'contract_manager', 'reviewer'].includes(role)) || false)
 const canReview = computed(() => auth.user?.roles.some((role) => ['system_admin', 'org_admin', 'reviewer'].includes(role)) || false)
+const canRiskManage = computed(() => auth.user?.roles.some((role) => ['system_admin', 'org_admin', 'contract_manager', 'reviewer'].includes(role)) || false)
 const selectedAnalysisRun = computed(() => analysisRuns.value.find((run) => run.id === selectedRunId.value) || null)
 
 async function loadDetail() {
@@ -81,13 +89,47 @@ async function loadAnalysisRuns() {
 async function loadPage() {
   loading.value = true
   try {
-    await Promise.all([getContractDetail(contractId.value), listContractAnalysisRuns(contractId.value)]).then(([contract, runs]) => {
+    await Promise.all([getContractDetail(contractId.value), listContractAnalysisRuns(contractId.value), listContractRisks(contractId.value)]).then(([contract, runs, risks]) => {
       detail.value = contract
       analysisRuns.value = runs
+      riskSummary.value = risks.summary
       if (!runs.some((run) => run.id === selectedRunId.value)) selectedRunId.value = runs[0]?.id || ''
     })
   } finally {
     loading.value = false
+  }
+}
+
+function openRiskRemediation(risk: StructuredAnalysisRisk) {
+  selectedRisk.value = risk
+  riskForm.status = risk.status
+  riskForm.assignee_id = risk.assignee_id || ''
+  riskForm.remediation_due_at = risk.remediation_due_at ? risk.remediation_due_at.slice(0, 16).replace('T', ' ') : ''
+  riskForm.remediation_notes = risk.remediation_notes || ''
+  riskForm.comment = ''
+  riskDialog.value = true
+}
+
+async function saveRiskRemediation() {
+  if (!selectedRisk.value) return
+  if (['accepted', 'mitigated', 'dismissed', 'closed'].includes(riskForm.status) && !riskForm.comment.trim()) {
+    ElMessage.warning('完成或关闭风险整改必须填写复核意见')
+    return
+  }
+  saving.value = true
+  try {
+    await updateRiskRemediation(selectedRisk.value.id, {
+      status: riskForm.status,
+      assignee_id: riskForm.assignee_id || null,
+      remediation_due_at: riskForm.remediation_due_at || null,
+      remediation_notes: riskForm.remediation_notes || null,
+      comment: riskForm.comment,
+    })
+    riskDialog.value = false
+    await loadPage()
+    ElMessage.success('风险整改已更新')
+  } finally {
+    saving.value = false
   }
 }
 
@@ -264,12 +306,12 @@ function structuredStatusLabel(value: string) {
   return { draft: '草稿', in_review: '待复核', approved: '已批准', rejected: '已驳回', superseded: '已替代' }[value] || value
 }
 
-function riskStatusLabel(value: AnalysisRiskStatus) {
-  return { open: '待处置', accepted: '接受风险', mitigated: '已缓释', dismissed: '已排除' }[value]
-}
-
 function severityLabel(value: string) {
   return { low: '低', medium: '中', high: '高', critical: '严重' }[value] || value
+}
+
+function riskStatusLabel(value: string) {
+  return { open: '待处置', in_progress: '整改中', accepted: '接受风险', mitigated: '已缓释', dismissed: '已排除', closed: '已关闭' }[value] || value
 }
 
 function formatStructuredValue(value: unknown) {
@@ -360,6 +402,14 @@ onMounted(async () => {
             </el-select>
             <el-button v-if="canStructure && selectedAnalysisRun?.raw_result_count" type="primary" :loading="analysisSaving" @click="importStructuredResults">生成结构化草稿</el-button>
           </div>
+          <div v-if="riskSummary" class="risk-summary-bar">
+            <span>合同风险 <strong>{{ riskSummary.total }}</strong></span>
+            <span class="danger">待处置 {{ riskSummary.open }}</span>
+            <span class="warning">整改中 {{ riskSummary.in_progress }}</span>
+            <span class="danger">逾期 {{ riskSummary.overdue }}</span>
+            <span class="success">已关闭 {{ riskSummary.closed }}</span>
+            <el-button text type="primary" @click="router.push({ name: 'risks', query: { contract_id: contractId } })">查看风险台账</el-button>
+          </div>
           <el-empty v-if="!analysisRuns.length" description="暂无可复核的分析运行" />
           <template v-else-if="selectedAnalysisRun">
             <div class="analysis-meta">
@@ -402,8 +452,11 @@ onMounted(async () => {
                 <el-table :data="result.risks" size="small" empty-text="暂无风险项">
                   <el-table-column label="等级" width="90"><template #default="{ row }"><el-tag :type="row.severity === 'critical' ? 'danger' : row.severity === 'high' ? 'warning' : row.severity === 'low' ? 'info' : 'primary'" size="small">{{ severityLabel(row.severity) }}</el-tag></template></el-table-column>
                   <el-table-column label="风险项" min-width="260"><template #default="{ row }"><strong>{{ row.title }}</strong><div class="muted">{{ row.description || '-' }}</div></template></el-table-column>
-                  <el-table-column label="处置状态" width="130"><template #default="{ row }"><el-tag :type="row.status === 'open' ? 'danger' : row.status === 'mitigated' ? 'success' : 'info'" size="small">{{ riskStatusLabel(row.status) }}</el-tag></template></el-table-column>
+                  <el-table-column label="处置状态" width="130"><template #default="{ row }"><el-tag :type="row.status === 'open' ? 'danger' : row.status === 'in_progress' ? 'warning' : row.status === 'mitigated' || row.status === 'closed' ? 'success' : 'info'" size="small">{{ riskStatusLabel(row.status) }}</el-tag><div v-if="row.is_overdue" class="danger risk-overdue">逾期</div></template></el-table-column>
+                  <el-table-column label="负责人" width="120"><template #default="{ row }">{{ row.assignee_id ? userName(row.assignee_id) : '未分配' }}</template></el-table-column>
+                  <el-table-column label="整改期限" width="170"><template #default="{ row }"><span :class="{ danger: row.is_overdue }">{{ formatDate(row.remediation_due_at) }}</span></template></el-table-column>
                   <el-table-column label="复核意见" min-width="220"><template #default="{ row }">{{ row.reviewer_comment || '-' }}</template></el-table-column>
+                  <el-table-column v-if="canRiskManage" label="整改" width="100"><template #default="{ row }"><el-button text type="primary" :icon="Edit" @click="openRiskRemediation(row)">编辑</el-button></template></el-table-column>
                   <el-table-column v-if="canReview && result.status === 'in_review'" label="操作" width="130"><template #default="{ row }"><el-dropdown trigger="click" @command="(status: AnalysisRiskStatus) => reviewRisk(result, row, status)"><el-button text type="primary">处置</el-button><template #dropdown><el-dropdown-menu><el-dropdown-item command="accepted">接受风险</el-dropdown-item><el-dropdown-item command="mitigated">标记已缓释</el-dropdown-item><el-dropdown-item command="dismissed">排除风险</el-dropdown-item></el-dropdown-menu></template></el-dropdown></template></el-table-column>
                 </el-table>
               </section>
@@ -448,6 +501,22 @@ onMounted(async () => {
     <el-dialog v-model="contactDialog" :title="`添加联系人 · ${selectedPartyForContact?.name || ''}`" width="560px"><el-form label-position="top"><div class="form-grid"><el-form-item label="姓名" required><el-input v-model="contactForm.name" /></el-form-item><el-form-item label="职务"><el-input v-model="contactForm.title" /></el-form-item><el-form-item label="电话"><el-input v-model="contactForm.phone" /></el-form-item><el-form-item label="邮箱"><el-input v-model="contactForm.email" /></el-form-item></div><el-form-item><el-checkbox v-model="contactForm.is_primary">设为主要联系人</el-checkbox></el-form-item></el-form><template #footer><el-button @click="contactDialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="saveContact">保存</el-button></template></el-dialog>
 
     <el-dialog v-model="taskDialog" title="新建履约任务" width="660px"><el-form label-position="top"><el-form-item label="任务名称" required><el-input v-model="taskForm.title" /></el-form-item><el-form-item label="任务说明"><el-input v-model="taskForm.description" type="textarea" :rows="3" /></el-form-item><div class="form-grid"><el-form-item label="任务类型"><el-select v-model="taskForm.task_type"><el-option label="付款" value="payment" /><el-option label="交付" value="delivery" /><el-option label="验收" value="acceptance" /><el-option label="续签" value="renewal" /><el-option label="其他" value="other" /></el-select></el-form-item><el-form-item label="优先级"><el-select v-model="taskForm.priority"><el-option label="低" value="low" /><el-option label="中" value="medium" /><el-option label="高" value="high" /><el-option label="严重" value="critical" /></el-select></el-form-item><el-form-item label="负责人"><el-select v-model="taskForm.assignee_id" clearable><el-option v-for="user in users" :key="user.id" :label="user.display_name" :value="user.id" /></el-select></el-form-item><el-form-item label="截止时间" required><el-date-picker v-model="taskForm.due_at" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" /></el-form-item><el-form-item label="提醒时间"><el-date-picker v-model="taskForm.remind_at" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" /></el-form-item></div></el-form><template #footer><el-button @click="taskDialog = false">取消</el-button><el-button type="primary" :icon="Check" :loading="saving" @click="saveTask">创建任务</el-button></template></el-dialog>
+
+    <el-dialog v-model="riskDialog" title="风险整改" width="620px">
+      <template v-if="selectedRisk">
+        <div class="risk-context"><strong>{{ selectedRisk.title }}</strong><span>{{ detail?.contract.name }}</span></div>
+        <el-form label-position="top">
+          <div class="form-grid">
+            <el-form-item label="状态"><el-select v-model="riskForm.status"><el-option label="待处置" value="open" /><el-option label="整改中" value="in_progress" /><el-option label="接受风险" value="accepted" /><el-option label="已缓释" value="mitigated" /><el-option label="已排除" value="dismissed" /><el-option v-if="canReview" label="已关闭" value="closed" /></el-select></el-form-item>
+            <el-form-item label="负责人"><el-select v-model="riskForm.assignee_id" clearable><el-option v-for="user in users" :key="user.id" :label="user.display_name" :value="user.id" /></el-select></el-form-item>
+          </div>
+          <el-form-item label="整改期限"><el-date-picker v-model="riskForm.remediation_due_at" type="datetime" value-format="YYYY-MM-DD HH:mm" placeholder="选择整改期限" /></el-form-item>
+          <el-form-item label="整改说明"><el-input v-model="riskForm.remediation_notes" type="textarea" :rows="4" placeholder="记录整改方案、处理进展或业务依据" /></el-form-item>
+          <el-form-item :label="['accepted', 'mitigated', 'dismissed', 'closed'].includes(riskForm.status) ? '复核意见（必填）' : '本次更新说明'"><el-input v-model="riskForm.comment" type="textarea" :rows="3" /></el-form-item>
+        </el-form>
+      </template>
+      <template #footer><el-button @click="riskDialog = false">取消</el-button><el-button type="primary" :loading="saving" @click="saveRiskRemediation">保存整改</el-button></template>
+    </el-dialog>
   </div>
 </template>
 
@@ -479,5 +548,10 @@ onMounted(async () => {
 .result-section h4 { margin: 0 0 10px; font-size: 15px; }
 .result-section h4 span { margin-left: 4px; color: #6b7280; font-size: 12px; font-weight: 400; }
 .field-value { margin: 0; white-space: pre-wrap; word-break: break-word; font: inherit; }
+.risk-summary-bar { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; padding: 10px 14px; margin: 12px 0 16px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; color: #4b5563; font-size: 13px; }
+.risk-summary-bar strong { color: #111827; font-size: 16px; }
+.risk-overdue { margin-top: 4px; font-size: 12px; }
+.risk-context { display: flex; justify-content: space-between; padding: 12px 16px; margin-bottom: 18px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; }
+.risk-context span { color: #6b7280; font-size: 13px; }
 @media (max-width: 760px) { .summary-band { grid-template-columns: repeat(2, minmax(0, 1fr)); } .summary-band div { border-bottom: 1px solid #e5e7eb; } .form-grid { grid-template-columns: 1fr; } }
 </style>
