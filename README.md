@@ -51,6 +51,8 @@ npm run test:python
 
 阶段 8 的合同风险台账、整改闭环、负责人和复核协作说明见 `STAGE8_RISK_LEDGER.md`。
 
+阶段 9 的风险提醒编排、整改协作通知、跨合同风险趋势和报表导出说明见 `STAGE9_RISK_REPORTS.md`。
+
 ## 构建
 
 ```powershell

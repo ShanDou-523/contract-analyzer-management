@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from core.security import CurrentPrincipal, as_utc, get_current_principal, require_roles
 from database import get_db
-from models.contract import Contract, FulfillmentTask, Notification, User
+from models.contract import AnalysisRisk, Contract, FulfillmentTask, Notification, User
 from schemas.fulfillment import FulfillmentTaskOut
 from schemas.notifications import (
     AssigneeWorkloadOut,
@@ -57,7 +57,8 @@ def _task_list_item(
 def _notification_out(
     notification: Notification,
     contract: Contract,
-    task: FulfillmentTask,
+    task: FulfillmentTask | None,
+    risk: AnalysisRisk | None = None,
 ) -> NotificationOut:
     return NotificationOut(
         id=notification.id,
@@ -67,7 +68,10 @@ def _notification_out(
         contract_name=contract.name,
         contract_no=contract.contract_no,
         task_id=notification.task_id,
-        task_title=task.title,
+        task_title=task.title if task else None,
+        risk_id=notification.risk_id,
+        risk_title=risk.title if risk else None,
+        remediation_due_at=risk.remediation_due_at if risk else None,
         notification_type=notification.notification_type,
         status=notification.status,
         title=notification.title,
@@ -325,15 +329,24 @@ def fulfillment_dashboard(
 
 def _notification_query(db: Session, principal: CurrentPrincipal):
     return (
-        db.query(Notification, Contract, FulfillmentTask)
+        db.query(Notification, Contract, FulfillmentTask, AnalysisRisk)
         .join(Contract, Contract.id == Notification.contract_id)
-        .join(FulfillmentTask, FulfillmentTask.id == Notification.task_id)
+        .outerjoin(FulfillmentTask, FulfillmentTask.id == Notification.task_id)
+        .outerjoin(AnalysisRisk, AnalysisRisk.id == Notification.risk_id)
         .filter(
             Notification.organization_id == principal.organization_id,
             Notification.recipient_id == principal.user_id,
             Contract.organization_id == principal.organization_id,
             Contract.deleted_at.is_(None),
-            FulfillmentTask.organization_id == principal.organization_id,
+            or_(
+                FulfillmentTask.id.is_(None),
+                FulfillmentTask.organization_id == principal.organization_id,
+            ),
+            or_(
+                AnalysisRisk.id.is_(None),
+                AnalysisRisk.organization_id == principal.organization_id,
+            ),
+            or_(Notification.task_id.isnot(None), Notification.risk_id.isnot(None)),
         )
     )
 
@@ -343,7 +356,7 @@ def list_notifications(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     status: str | None = Query(default=None, pattern=r"^(unread|read|ignored)$"),
-    notification_type: str | None = Query(default=None, pattern=r"^(reminder|overdue)$"),
+    notification_type: str | None = Query(default=None, pattern=r"^(reminder|overdue|risk_reminder|risk_overdue)$"),
     principal: CurrentPrincipal = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ):
@@ -362,7 +375,8 @@ def list_notifications(
     )
     return PagedNotificationsOut(
         items=[
-            _notification_out(notification, contract, task) for notification, contract, task in rows
+            _notification_out(notification, contract, task, risk)
+            for notification, contract, task, risk in rows
         ],
         total=total,
         unread=unread,
@@ -393,7 +407,7 @@ def update_notification_status(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="通知不存在")
-    notification, contract, task = row
+    notification, contract, task, risk = row
     now = notification_service.now_utc()
     notification.status = data.status
     notification.read_at = now if data.status == "read" else None
@@ -405,11 +419,15 @@ def update_notification_status(
         user_id=principal.user_id,
         resource_type="notification",
         resource_id=notification.id,
-        details={"task_id": task.id, "contract_id": contract.id},
+        details={
+            "task_id": task.id if task else None,
+            "risk_id": risk.id if risk else None,
+            "contract_id": contract.id,
+        },
     )
     db.commit()
     db.refresh(notification)
-    return _notification_out(notification, contract, task)
+    return _notification_out(notification, contract, task, risk)
 
 
 @router.post("/notifications/read-all", response_model=MarkAllReadOut)
@@ -419,7 +437,7 @@ def mark_all_notifications_read(
 ):
     rows = _notification_query(db, principal).filter(Notification.status == "unread").all()
     now = notification_service.now_utc()
-    for notification, _contract, _task in rows:
+    for notification, _contract, _task, _risk in rows:
         notification.status = "read"
         notification.read_at = now
         notification.ignored_at = None

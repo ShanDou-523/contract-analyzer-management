@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import asc, desc, or_
 from sqlalchemy.orm import Session
 
 from core.security import CurrentPrincipal, get_current_principal, require_roles
-from database import get_db
+from database import SessionLocal, get_db
 from models.contract import AnalysisRisk, Contract, StructuredAnalysisResult, User
+from schemas.risk_reports import (
+    PagedRiskContractRankings,
+    RiskReminderScanQueued,
+    RiskReportOverview,
+)
 from schemas.risks import (
     ContractRisksOut,
     PagedRisks,
@@ -19,6 +26,8 @@ from schemas.risks import (
     RiskSummary,
 )
 from services.audit_service import record_audit
+from services.risk_notification_service import scan_risk_reminders
+from services.risk_report_service import build_overview, export_csv
 from services.risk_service import (
     ACTIVE_REMEDIATION_STATUSES,
     contract_summary,
@@ -29,6 +38,7 @@ from services.risk_service import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["risks"])
+logger = logging.getLogger("contract_analyzer.risks")
 RISK_MANAGE_ROLES = ("system_admin", "org_admin", "contract_manager", "reviewer")
 SORT_COLUMNS = {
     "created_at": AnalysisRisk.created_at,
@@ -50,12 +60,95 @@ def _get_risk_row(db: Session, principal: CurrentPrincipal, risk_id: str):
     return row
 
 
+def _run_risk_reminder_scan(organization_id: str, user_id: str) -> None:
+    db = SessionLocal()
+    try:
+        result = scan_risk_reminders(db, organization_id)
+        record_audit(
+            db,
+            "risk.reminders_scanned",
+            organization_id=organization_id,
+            user_id=user_id,
+            resource_type="risk",
+            details={
+                "examined_risks": result.examined_risks,
+                "created": result.created,
+                "skipped_existing": result.skipped_existing,
+                "skipped_without_recipient": result.skipped_without_recipient,
+            },
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("Risk reminder scan failed for organization %s", organization_id)
+    finally:
+        db.close()
+
+
 @router.get("/risks/summary", response_model=RiskSummary)
 def get_risk_summary(
     principal: CurrentPrincipal = Depends(get_current_principal),
     db: Session = Depends(get_db),
 ):
     return summarize_risks(db, principal.organization_id)
+
+
+@router.post("/risks/reminders/scan", response_model=RiskReminderScanQueued, status_code=202)
+def queue_risk_reminder_scan(
+    background_tasks: BackgroundTasks,
+    principal: CurrentPrincipal = Depends(require_roles(*RISK_MANAGE_ROLES)),
+):
+    background_tasks.add_task(_run_risk_reminder_scan, principal.organization_id, principal.user_id)
+    return RiskReminderScanQueued()
+
+
+@router.get("/risk-reports/overview", response_model=RiskReportOverview)
+def get_risk_report_overview(
+    days: int = Query(default=30, ge=1, le=365),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    return build_overview(db, principal.organization_id, period_days=days)
+
+
+@router.get("/risk-reports/contracts", response_model=PagedRiskContractRankings)
+def list_risk_contract_rankings(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    days: int = Query(default=30, ge=1, le=365),
+    sort_by: str = Query(default="overdue", pattern=r"^(total|open|critical|overdue)$"),
+    sort_order: str = Query(default="desc", pattern=r"^(asc|desc)$"),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    overview = build_overview(db, principal.organization_id, period_days=days)
+    rows = sorted(
+        overview.contract_rankings,
+        key=lambda item: (getattr(item, sort_by), item.contract_name),
+        reverse=sort_order == "desc",
+    )
+    start = (page - 1) * page_size
+    return PagedRiskContractRankings(
+        items=rows[start : start + page_size],
+        total=len(rows),
+        page=page,
+        page_size=page_size,
+    )
+
+
+@router.get("/risk-reports/export")
+def export_risk_report(
+    days: int = Query(default=30, ge=1, le=365),
+    principal: CurrentPrincipal = Depends(get_current_principal),
+    db: Session = Depends(get_db),
+):
+    overview = build_overview(db, principal.organization_id, period_days=days)
+    filename = f"risk-report-{datetime.now(timezone.utc).date().isoformat()}.csv"
+    return StreamingResponse(
+        iter([export_csv(overview)]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/risks", response_model=PagedRisks)

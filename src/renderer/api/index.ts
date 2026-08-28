@@ -33,6 +33,9 @@ import type {
   PagedRisks,
   RiskLedgerItem,
   RiskSummary,
+  RiskReportOverview,
+  PagedRiskContractRankings,
+  RiskReminderScanQueued,
   StructuredAnalysisResult,
 } from '../types'
 
@@ -265,6 +268,35 @@ export async function updateStructuredRisk(
 
 export async function getRiskSummary(): Promise<RiskSummary> {
   const { data } = await (await client()).get('/api/v1/risks/summary')
+  return data
+}
+
+export async function getRiskReportOverview(days = 30): Promise<RiskReportOverview> {
+  const { data } = await (await client()).get('/api/v1/risk-reports/overview', { params: { days } })
+  return data
+}
+
+export async function listRiskContractRankings(params: {
+  page?: number
+  page_size?: number
+  days?: number
+  sort_by?: 'total' | 'open' | 'critical' | 'overdue'
+  sort_order?: 'asc' | 'desc'
+} = {}): Promise<PagedRiskContractRankings> {
+  const { data } = await (await client()).get('/api/v1/risk-reports/contracts', { params })
+  return data
+}
+
+export async function scanRiskReminders(): Promise<RiskReminderScanQueued> {
+  const { data } = await (await client()).post('/api/v1/risks/reminders/scan')
+  return data
+}
+
+export async function downloadRiskReport(days = 30): Promise<Blob> {
+  const { data } = await (await client()).get('/api/v1/risk-reports/export', {
+    params: { days },
+    responseType: 'blob',
+  })
   return data
 }
 

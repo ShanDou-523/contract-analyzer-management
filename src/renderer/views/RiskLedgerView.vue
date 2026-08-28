@@ -2,15 +2,17 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Search, Edit, WarningFilled } from '@element-plus/icons-vue'
-import { getRiskSummary, listFulfillmentAssignees, listRisks, updateRiskRemediation } from '../api'
+import { Refresh, Search, Edit, WarningFilled, Bell, Download } from '@element-plus/icons-vue'
+import { downloadRiskReport, getRiskReportOverview, getRiskSummary, listFulfillmentAssignees, listRisks, scanRiskReminders, updateRiskRemediation } from '../api'
 import { useAuthStore } from '../stores/auth'
-import type { FulfillmentAssignee, RiskLedgerItem, RiskSummary } from '../types'
+import type { FulfillmentAssignee, RiskLedgerItem, RiskReportOverview, RiskSummary } from '../types'
 
 const auth = useAuthStore()
 const route = useRoute()
 const loading = ref(false)
 const saving = ref(false)
+const scanning = ref(false)
+const reportLoading = ref(false)
 const risks = ref<RiskLedgerItem[]>([])
 const assignees = ref<FulfillmentAssignee[]>([])
 const summary = ref<RiskSummary>({ total: 0, open: 0, in_progress: 0, accepted: 0, mitigated: 0, dismissed: 0, closed: 0, overdue: 0, by_severity: [], by_status: [] })
@@ -20,6 +22,7 @@ const pageSize = ref(20)
 const filters = reactive({ search: '', status: '', severity: '', contract_id: '', assignee_id: '', overdue_only: false, sort_by: 'remediation_due_at', sort_order: 'asc' as 'asc' | 'desc' })
 const dialogVisible = ref(false)
 const selectedRisk = ref<RiskLedgerItem | null>(null)
+const report = ref<RiskReportOverview | null>(null)
 const form = reactive({ status: '', assignee_id: '', remediation_due_at: '', remediation_notes: '', comment: '' })
 
 const canManage = computed(() => auth.user?.roles.some((role) => ['system_admin', 'org_admin', 'contract_manager', 'reviewer'].includes(role)) || false)
@@ -59,6 +62,40 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadReport() {
+  reportLoading.value = true
+  try {
+    report.value = await getRiskReportOverview(30)
+  } finally {
+    reportLoading.value = false
+  }
+}
+
+async function refreshAll() {
+  await Promise.all([load(), loadReport()])
+}
+
+async function scanReminders() {
+  scanning.value = true
+  try {
+    await scanRiskReminders()
+    ElMessage.success('风险提醒扫描已排队')
+    await Promise.all([load(), loadReport()])
+  } finally {
+    scanning.value = false
+  }
+}
+
+async function exportReport() {
+  const blob = await downloadRiskReport(30)
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `risk-report-${new Date().toISOString().slice(0, 10)}.csv`
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 function applyFilters() { page.value = 1; load() }
@@ -112,7 +149,7 @@ async function closeRisk(risk: RiskLedgerItem) {
 
 onMounted(async () => {
   filters.contract_id = typeof route.query.contract_id === 'string' ? route.query.contract_id : ''
-  await Promise.all([load(), listFulfillmentAssignees().then((value) => { assignees.value = value })])
+  await Promise.all([load(), loadReport(), listFulfillmentAssignees().then((value) => { assignees.value = value })])
 })
 </script>
 
@@ -123,7 +160,11 @@ onMounted(async () => {
         <h2>风险台账</h2>
         <p>集中跟踪合同风险、整改负责人、期限和复核关闭状态。</p>
       </div>
-      <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
+      <div class="header-actions">
+        <el-button v-if="canManage" :icon="Bell" :loading="scanning" @click="scanReminders">扫描提醒</el-button>
+        <el-button :icon="Download" @click="exportReport">导出报表</el-button>
+        <el-button :icon="Refresh" :loading="loading" @click="refreshAll">刷新</el-button>
+      </div>
     </div>
 
     <section class="summary-grid">
@@ -156,6 +197,41 @@ onMounted(async () => {
       <el-pagination v-model:current-page="page" v-model:page-size="pageSize" class="pagination" layout="total, sizes, prev, pager, next" :page-sizes="[20, 50, 100]" :total="total" @current-change="load" />
     </el-card>
 
+    <section v-loading="reportLoading" class="report-section">
+      <div class="report-heading"><div><h3>组织风险报表</h3><span class="muted">近 30 天风险创建趋势、合同风险排序和整改负荷。</span></div><el-button text :icon="Refresh" @click="loadReport">更新报表</el-button></div>
+      <div v-if="report" class="report-grid">
+        <div class="report-panel">
+          <div class="section-title">风险趋势</div>
+          <el-table :data="report.trend.slice(-14)" size="small" empty-text="暂无趋势数据">
+            <el-table-column prop="date" label="日期" width="120" />
+            <el-table-column prop="total" label="新增" width="72" />
+            <el-table-column prop="open" label="待处置" width="82" />
+            <el-table-column prop="overdue" label="逾期" width="72" />
+            <el-table-column prop="closed" label="已关闭" width="82" />
+          </el-table>
+        </div>
+        <div class="report-panel">
+          <div class="section-title">合同风险排行</div>
+          <el-table :data="report.contract_rankings.slice(0, 8)" size="small" empty-text="暂无合同风险">
+            <el-table-column label="合同" min-width="180"><template #default="{ row }"><el-link type="primary" @click="$router.push(`/contracts/${row.contract_id}`)">{{ row.contract_name }}</el-link><div class="muted">{{ row.contract_no || '未设置编号' }}</div></template></el-table-column>
+            <el-table-column prop="total" label="总数" width="62" />
+            <el-table-column prop="open" label="待处置" width="72" />
+            <el-table-column prop="overdue" label="逾期" width="62" />
+          </el-table>
+        </div>
+        <div class="report-panel report-panel-wide">
+          <div class="section-title">整改负责人负荷</div>
+          <el-table :data="report.assignee_workloads" size="small" empty-text="暂无整改负责人">
+            <el-table-column prop="assignee_name" label="负责人" min-width="150" />
+            <el-table-column prop="total" label="风险总数" width="90" />
+            <el-table-column prop="open" label="待处置" width="90" />
+            <el-table-column prop="overdue" label="逾期" width="80" />
+            <el-table-column prop="closed" label="已关闭" width="90" />
+          </el-table>
+        </div>
+      </div>
+    </section>
+
     <el-dialog v-model="dialogVisible" title="风险整改" width="620px">
       <template v-if="selectedRisk">
         <div class="risk-context"><strong>{{ selectedRisk.title }}</strong><span>{{ selectedRisk.contract_name }}</span></div>
@@ -176,8 +252,9 @@ onMounted(async () => {
 
 <style scoped>
 .risk-ledger { max-width: 1400px; margin: 0 auto; }
-.page-header, .filters, .risk-context { display: flex; align-items: center; }
+.page-header, .filters, .risk-context, .header-actions, .report-heading { display: flex; align-items: center; }
 .page-header { justify-content: space-between; margin-bottom: 18px; }
+.header-actions { gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
 .page-header h2 { margin: 0 0 6px; }
 .page-header p, .muted { margin: 0; color: #6b7280; font-size: 13px; }
 .summary-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); margin-bottom: 18px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; }
@@ -195,5 +272,13 @@ onMounted(async () => {
 .risk-context span { color: #6b7280; font-size: 13px; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
 .pagination { justify-content: flex-end; margin-top: 18px; }
+.report-section { margin-top: 18px; padding: 18px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; }
+.report-heading { justify-content: space-between; margin-bottom: 14px; }
+.report-heading h3 { margin: 0 0 4px; }
+.report-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+.report-panel { min-width: 0; }
+.report-panel-wide { grid-column: 1 / -1; }
+.section-title { margin-bottom: 8px; font-weight: 600; color: #303133; }
 @media (max-width: 760px) { .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .summary-grid div { border-bottom: 1px solid #e5e7eb; } .summary-grid div:last-child { border-right: 1px solid #e5e7eb; } .filters .el-input, .filters .el-select { width: 100%; } .form-grid { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .report-grid { grid-template-columns: 1fr; } .report-panel-wide { grid-column: auto; } }
 </style>

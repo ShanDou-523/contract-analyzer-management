@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from schemas.fulfillment import FulfillmentTaskOut, TaskPriority, TaskStatus
 
 NotificationStatus = Literal["unread", "read", "ignored"]
-NotificationType = Literal["reminder", "overdue"]
+NotificationType = Literal["reminder", "overdue", "risk_reminder", "risk_overdue"]
 
 
 class FulfillmentTaskListItemOut(FulfillmentTaskOut):
@@ -72,8 +72,11 @@ class NotificationOut(BaseModel):
     contract_id: str
     contract_name: str
     contract_no: str | None = None
-    task_id: str
-    task_title: str
+    task_id: str | None = None
+    task_title: str | None = None
+    risk_id: str | None = None
+    risk_title: str | None = None
+    remediation_due_at: datetime | None = None
     notification_type: NotificationType
     status: NotificationStatus
     title: str

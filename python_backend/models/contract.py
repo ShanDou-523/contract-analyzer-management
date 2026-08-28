@@ -330,7 +330,7 @@ class FulfillmentTask(Base):
 
 
 class Notification(Base):
-    """In-app reminder generated from an organization-scoped fulfillment task."""
+    """In-app reminder generated from a task or an analysis risk."""
 
     __tablename__ = "notifications"
     __table_args__ = (
@@ -342,13 +342,15 @@ class Notification(Base):
             "status",
         ),
         Index("ix_notifications_org_task", "organization_id", "task_id"),
+        Index("ix_notifications_org_risk", "organization_id", "risk_id"),
     )
 
     id = Column(String(36), primary_key=True, default=_uuid)
     organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
     recipient_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     contract_id = Column(String(36), ForeignKey("contracts.id"), nullable=False, index=True)
-    task_id = Column(String(36), ForeignKey("fulfillment_tasks.id"), nullable=False, index=True)
+    task_id = Column(String(36), ForeignKey("fulfillment_tasks.id"), nullable=True, index=True)
+    risk_id = Column(String(36), ForeignKey("analysis_risks.id"), nullable=True, index=True)
     notification_type = Column(String(20), nullable=False, index=True)
     status = Column(String(20), nullable=False, default="unread", index=True)
     title = Column(String(300), nullable=False)
@@ -361,6 +363,7 @@ class Notification(Base):
     ignored_at = Column(DateTime(timezone=True), nullable=True)
 
     task = relationship("FulfillmentTask", back_populates="notifications")
+    risk = relationship("AnalysisRisk", back_populates="notifications")
 
 
 class AnalysisTemplateVersion(Base):
@@ -575,3 +578,4 @@ class AnalysisRisk(Base):
 
     structured_result = relationship("StructuredAnalysisResult", back_populates="risks")
     evidence = relationship("AnalysisEvidence")
+    notifications = relationship("Notification", back_populates="risk")

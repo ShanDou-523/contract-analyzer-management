@@ -232,13 +232,13 @@ onMounted(async () => {
       <el-tab-pane :label="`通知 (${notifications.unread})`" name="notifications">
         <div class="filter-bar notification-tools">
           <el-select v-model="notificationFilters.status" clearable placeholder="通知状态"><el-option label="未读" value="unread" /><el-option label="已读" value="read" /><el-option label="已忽略" value="ignored" /></el-select>
-          <el-select v-model="notificationFilters.notification_type" clearable placeholder="通知类型"><el-option label="任务提醒" value="reminder" /><el-option label="任务逾期" value="overdue" /></el-select>
+          <el-select v-model="notificationFilters.notification_type" clearable placeholder="通知类型"><el-option label="任务提醒" value="reminder" /><el-option label="任务逾期" value="overdue" /><el-option label="风险提醒" value="risk_reminder" /><el-option label="风险逾期" value="risk_overdue" /></el-select>
           <el-button :icon="Search" @click="loadNotifications(1)">筛选</el-button>
           <span class="toolbar-spacer" />
           <el-button :icon="Check" :disabled="!notifications.unread" @click="markAllRead">全部已读</el-button>
         </div>
         <el-table :data="notifications.items" :row-class-name="notificationRowClass" empty-text="暂无通知">
-          <el-table-column label="通知" min-width="300"><template #default="{ row }"><strong>{{ row.title }}</strong><div class="notification-message">{{ row.message }}</div></template></el-table-column>
+          <el-table-column label="通知" min-width="300"><template #default="{ row }"><strong>{{ row.title }}</strong><div class="notification-message">{{ row.message }}</div><el-tag v-if="row.risk_id" size="small" type="danger">风险整改</el-tag></template></el-table-column>
           <el-table-column label="合同" min-width="190"><template #default="{ row }"><el-link type="primary" @click="router.push(`/contracts/${row.contract_id}`)">{{ row.contract_name }}</el-link><div class="muted">{{ row.contract_no || '未设置编号' }}</div></template></el-table-column>
           <el-table-column label="触发时间" width="180"><template #default="{ row }">{{ formatDate(row.source_at) }}</template></el-table-column>
           <el-table-column label="状态" width="90"><template #default="{ row }"><el-tag :type="row.status === 'unread' ? 'warning' : row.status === 'ignored' ? 'info' : 'success'">{{ notificationStatusLabel(row.status) }}</el-tag></template></el-table-column>

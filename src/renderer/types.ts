@@ -290,7 +290,7 @@ export interface FulfillmentDashboard {
 }
 
 export type NotificationStatus = 'unread' | 'read' | 'ignored'
-export type NotificationType = 'reminder' | 'overdue'
+export type NotificationType = 'reminder' | 'overdue' | 'risk_reminder' | 'risk_overdue'
 
 export interface FulfillmentNotification {
   id: string
@@ -299,8 +299,11 @@ export interface FulfillmentNotification {
   contract_id: string
   contract_name: string
   contract_no: string | null
-  task_id: string
-  task_title: string
+  task_id: string | null
+  task_title: string | null
+  risk_id: string | null
+  risk_title: string | null
+  remediation_due_at: string | null
   notification_type: NotificationType
   status: NotificationStatus
   title: string
@@ -463,4 +466,51 @@ export interface ContractRiskSummary extends RiskSummary {
 export interface ContractRisksOut {
   summary: ContractRiskSummary
   items: RiskLedgerItem[]
+}
+
+export interface RiskTrendPoint {
+  date: string
+  total: number
+  open: number
+  overdue: number
+  closed: number
+}
+
+export interface RiskContractRanking {
+  contract_id: string
+  contract_name: string
+  contract_no: string | null
+  total: number
+  open: number
+  critical: number
+  overdue: number
+}
+
+export interface RiskAssigneeWorkload {
+  assignee_id: string | null
+  assignee_name: string
+  total: number
+  open: number
+  overdue: number
+  closed: number
+}
+
+export interface RiskReportOverview {
+  generated_at: string
+  period_days: number
+  summary: RiskSummary
+  trend: RiskTrendPoint[]
+  contract_rankings: RiskContractRanking[]
+  assignee_workloads: RiskAssigneeWorkload[]
+}
+
+export interface RiskReminderScanQueued {
+  status: 'queued'
+}
+
+export interface PagedRiskContractRankings {
+  items: RiskContractRanking[]
+  total: number
+  page: number
+  page_size: number
 }
