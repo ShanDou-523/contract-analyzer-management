@@ -1,4 +1,4 @@
-import axios, { type AxiosInstance } from 'axios'
+import axios, { type AxiosInstance, type AxiosRequestConfig } from 'axios'
 import { ElMessage } from 'element-plus'
 import type {
   AnalysisTemplate,
@@ -46,6 +46,7 @@ import type {
 } from '../types'
 
 let api: AxiosInstance | null = null
+type ApiRequestConfig = AxiosRequestConfig & { suppressNetworkErrorToast?: boolean }
 
 async function getBaseUrl(): Promise<string> {
   return window.electronAPI
@@ -71,6 +72,8 @@ export async function initApi(): Promise<AxiosInstance> {
   api.interceptors.response.use(
     (response) => response,
     (error) => {
+      const requestConfig = error.config as ApiRequestConfig | undefined
+      const suppressNetworkErrorToast = requestConfig?.suppressNetworkErrorToast === true
       if (error.response) {
         const { status, data } = error.response
         const detail = data?.message || data?.detail || '未知错误'
@@ -99,11 +102,11 @@ export async function initApi(): Promise<AxiosInstance> {
           default:
             ElMessage.error(`请求失败 (${status}): ${detail}`)
         }
-      } else if (error.code === 'ECONNREFUSED') {
+      } else if (error.code === 'ECONNREFUSED' && !suppressNetworkErrorToast) {
         ElMessage.error('无法连接到后端服务，请检查应用是否正常启动')
-      } else if (error.code === 'ECONNABORTED') {
+      } else if (error.code === 'ECONNABORTED' && !suppressNetworkErrorToast) {
         ElMessage.error('请求超时，请检查网络或重试')
-      } else {
+      } else if (!suppressNetworkErrorToast) {
         ElMessage.error(`网络错误: ${error.message}`)
       }
       return Promise.reject(error)
@@ -150,8 +153,11 @@ export async function listBatchImports(params: { page?: number; page_size?: numb
   return data
 }
 
-export async function getBatchImport(id: string): Promise<BatchImport> {
-  const { data } = await (await client()).get(`/api/v1/batch-imports/${id}`)
+export async function getBatchImport(
+  id: string,
+  options: ApiRequestConfig = {},
+): Promise<BatchImport> {
+  const { data } = await (await client()).get(`/api/v1/batch-imports/${id}`, options)
   return data
 }
 

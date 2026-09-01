@@ -19,6 +19,7 @@ const batchFiles = ref<File[]>([])
 const batchImport = ref<BatchImport | null>(null)
 const batchLoading = ref(false)
 let batchTimer: ReturnType<typeof setInterval> | null = null
+let batchPollInFlight = false
 const assignmentDraft = ref<Record<string, string>>({})
 const initializing = ref(true)
 const searchKeyword = ref('')
@@ -161,16 +162,28 @@ async function submitBatchImport() {
 
 function startBatchPolling() {
   if (batchTimer) clearInterval(batchTimer)
-  batchTimer = setInterval(async () => {
-    if (!batchImport.value) return
-    const current = await getBatchImport(batchImport.value.id)
-    batchImport.value = current
-    if (['completed', 'partial', 'failed', 'cancelled'].includes(current.status)) {
-      clearInterval(batchTimer!)
-      batchTimer = null
-      await refreshDocuments()
+  const poll = async () => {
+    if (!batchImport.value || batchPollInFlight) return
+    batchPollInFlight = true
+    const batchId = batchImport.value.id
+    try {
+      const current = await getBatchImport(batchId, { suppressNetworkErrorToast: true })
+      // Ignore a late response if the user has already started another batch.
+      if (!batchImport.value || batchImport.value.id !== batchId) return
+      batchImport.value = current
+      if (['completed', 'partial', 'failed', 'cancelled'].includes(current.status)) {
+        if (batchTimer) clearInterval(batchTimer)
+        batchTimer = null
+        await refreshDocuments()
+      }
+    } catch {
+      // Polling is best-effort; the next tick retries without interrupting the batch.
+    } finally {
+      batchPollInFlight = false
     }
-  }, 3000)
+  }
+  void poll()
+  batchTimer = setInterval(() => { void poll() }, 3000)
 }
 
 async function retryBatchItemAction(itemId: string) {
