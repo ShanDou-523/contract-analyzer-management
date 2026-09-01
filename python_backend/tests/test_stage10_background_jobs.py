@@ -74,7 +74,7 @@ def test_stage10_migration_adds_durable_job_tables(tmp_path: Path):
     alembic_config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
     alembic_config.set_main_option("script_location", str(Path(__file__).parents[1] / "alembic"))
     alembic_config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path}")
-    command.upgrade(alembic_config, "head")
+    command.upgrade(alembic_config, "0010_background_jobs_snapshots")
     engine = create_engine(f"sqlite:///{database_path}")
     inspector = inspect(engine)
     assert {"background_jobs", "notification_deliveries", "risk_report_snapshots"} <= set(

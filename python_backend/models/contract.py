@@ -614,6 +614,64 @@ class BackgroundJob(Base):
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
 
 
+class BatchImport(Base):
+    """Organization-scoped batch of legacy PDF documents processed asynchronously."""
+
+    __tablename__ = "batch_imports"
+    __table_args__ = (
+        Index("ix_batch_imports_org_created", "organization_id", "created_at"),
+        Index("ix_batch_imports_org_status", "organization_id", "status"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    created_by = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    template_id = Column(String(36), nullable=True, index=True)
+    status = Column(String(20), nullable=False, default="queued", index=True)
+    total_count = Column(Integer, nullable=False, default=0)
+    completed_count = Column(Integer, nullable=False, default=0)
+    failed_count = Column(Integer, nullable=False, default=0)
+    progress = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    finished_at = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+
+    items = relationship("BatchImportItem", back_populates="batch", cascade="all, delete-orphan")
+
+
+class BatchImportItem(Base):
+    """One PDF in a batch, with independent OCR and analysis progress."""
+
+    __tablename__ = "batch_import_items"
+    __table_args__ = (
+        Index("ix_batch_import_items_org_status", "organization_id", "status"),
+        Index("ix_batch_import_items_batch_status", "batch_id", "status"),
+        Index("ix_batch_import_items_document", "document_id"),
+    )
+
+    id = Column(String(36), primary_key=True, default=_uuid)
+    batch_id = Column(String(36), ForeignKey("batch_imports.id"), nullable=False, index=True)
+    organization_id = Column(String(36), ForeignKey("organizations.id"), nullable=False, index=True)
+    document_id = Column(String(36), ForeignKey("documents.id"), nullable=True, index=True)
+    original_filename = Column(String(512), nullable=False)
+    file_size = Column(Integer, nullable=False, default=0)
+    sha256 = Column(String(64), nullable=False)
+    status = Column(String(20), nullable=False, default="queued", index=True)
+    stage = Column(String(20), nullable=False, default="ocr")
+    progress = Column(Integer, nullable=False, default=0)
+    ocr_job_id = Column(String(36), ForeignKey("background_jobs.id"), nullable=True, index=True)
+    analysis_job_id = Column(String(36), ForeignKey("background_jobs.id"), nullable=True, index=True)
+    retry_count = Column(Integer, nullable=False, default=0)
+    error_code = Column(String(100), nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_now)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_now, onupdate=_now)
+
+    batch = relationship("BatchImport", back_populates="items")
+    document = relationship("Document", foreign_keys=[document_id])
+
+
 class NotificationDelivery(Base):
     """Latest delivery state for one notification/provider pair."""
 

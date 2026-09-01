@@ -39,6 +39,8 @@ import type {
   PagedBackgroundJobs,
   PagedNotificationDeliveries,
   PagedRiskReportSnapshots,
+  BatchImport,
+  PagedBatchImports,
   RiskReminderScanQueued,
   StructuredAnalysisResult,
 } from '../types'
@@ -129,6 +131,37 @@ export async function bootstrapAdmin(payload: {
 
 export async function getCurrentUser() {
   const { data } = await (await client()).get('/api/v1/auth/me')
+  return data
+}
+
+export async function createBatchImport(files: File[], templateId?: string): Promise<BatchImport> {
+  const form = new FormData()
+  files.forEach((file) => form.append('files', file))
+  if (templateId) form.append('template_id', templateId)
+  const { data } = await (await client()).post('/api/v1/batch-imports', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 180000,
+  })
+  return data
+}
+
+export async function listBatchImports(params: { page?: number; page_size?: number; status?: string } = {}): Promise<PagedBatchImports> {
+  const { data } = await (await client()).get('/api/v1/batch-imports', { params })
+  return data
+}
+
+export async function getBatchImport(id: string): Promise<BatchImport> {
+  const { data } = await (await client()).get(`/api/v1/batch-imports/${id}`)
+  return data
+}
+
+export async function retryBatchItem(batchId: string, itemId: string): Promise<BatchImport> {
+  const { data } = await (await client()).post(`/api/v1/batch-imports/${batchId}/items/${itemId}/retry`)
+  return data
+}
+
+export async function retryFailedBatchItems(batchId: string): Promise<BatchImport> {
+  const { data } = await (await client()).post(`/api/v1/batch-imports/${batchId}/retry-failed`)
   return data
 }
 

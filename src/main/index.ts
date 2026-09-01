@@ -7,12 +7,17 @@ let mainWindow: BrowserWindow | null = null
 let pythonBridge: PythonBridge | null = null
 
 function createWindow(): void {
+  const windowIcon = app.isPackaged
+    ? join(process.resourcesPath, 'assets', 'contract-analysis.ico')
+    : join(__dirname, '../../assets/contract-analysis.ico')
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 900,
     minHeight: 600,
     title: '合同分析系统',
+    icon: windowIcon,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,

@@ -27,6 +27,13 @@ npm run dev
 
 应用开发模式会由 Electron 自动启动 `python_backend\main.py`。
 
+Windows 下也可以直接双击 `合同分析管理系统.bat`。脚本会检查 Node.js、Python
+虚拟环境、前端依赖及端口占用，然后启动完整开发环境；只检查环境而不启动时运行：
+
+```powershell
+.\合同分析管理系统.bat --check
+```
+
 阶段 1 基础检查：
 
 ```powershell
@@ -54,6 +61,8 @@ npm run test:python
 阶段 9 的风险提醒编排、整改协作通知、跨合同风险趋势和报表导出说明见 `STAGE9_RISK_REPORTS.md`。
 
 阶段 10 的持久化后台任务、通知 Provider、重试恢复和风险日报快照说明见 `STAGE10_BACKGROUND_AUTOMATION.md`。
+
+阶段 11 的批量 PDF 上传、逐文件 OCR/AI 任务、失败重试和进度管理说明见 `STAGE11_BATCH_IMPORT.md`。
 
 开发模式默认由 API 进程内的后台 worker 轮询持久化任务。多进程部署时可在 API 进程设置
 `CONTRACT_ANALYZER_BACKGROUND_WORKER_ENABLED=false`，并在 `python_backend` 目录单独运行：

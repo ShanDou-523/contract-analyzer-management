@@ -8,7 +8,10 @@ files:
 extraResources:
   - from: python_backend/dist/main
     to: python_backend/main
+  - from: assets
+    to: assets
 win:
+  icon: assets/contract-analysis.ico
   target:
     - nsis
 nsis:

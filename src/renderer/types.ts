@@ -598,3 +598,49 @@ export interface PagedRiskReportSnapshots {
   page: number
   page_size: number
 }
+
+export type BatchImportStatus = 'queued' | 'running' | 'completed' | 'partial' | 'failed' | 'cancelled'
+export type BatchImportItemStatus = 'queued' | 'ocr_processing' | 'ocr_done' | 'analyzing' | 'done' | 'error'
+
+export interface BatchImportItem {
+  id: string
+  batch_id: string
+  organization_id: string
+  document_id: string | null
+  original_filename: string
+  file_size: number
+  status: BatchImportItemStatus
+  stage: 'ocr' | 'analysis'
+  progress: number
+  ocr_job_id: string | null
+  analysis_job_id: string | null
+  retry_count: number
+  error_code: string | null
+  error_message: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface BatchImport {
+  id: string
+  organization_id: string
+  created_by: string
+  template_id: string | null
+  status: BatchImportStatus
+  total_count: number
+  completed_count: number
+  failed_count: number
+  progress: number
+  created_at: string
+  started_at: string | null
+  finished_at: string | null
+  updated_at: string
+  items: BatchImportItem[]
+}
+
+export interface PagedBatchImports {
+  items: BatchImport[]
+  total: number
+  page: number
+  page_size: number
+}

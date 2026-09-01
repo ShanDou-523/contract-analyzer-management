@@ -1,19 +1,24 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElNotification } from 'element-plus'
 import { Delete, Search } from '@element-plus/icons-vue'
-import { assignDocumentTemplate, getAnalysisTemplates, runAnalysis, runOcr } from '../api'
+import { assignDocumentTemplate, createBatchImport, getAnalysisTemplates, getBatchImport, listBatchImports, retryBatchItem, retryFailedBatchItems, runAnalysis, runOcr } from '../api'
 import { useDocumentsStore } from '../stores/documents'
-import type { AnalysisTemplate, DocumentListItem } from '../types'
+import type { AnalysisTemplate, BatchImport, DocumentListItem } from '../types'
 
 const router = useRouter()
 const store = useDocumentsStore()
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const batchFileInputRef = ref<HTMLInputElement | null>(null)
 const isDragover = ref(false)
 const templates = ref<AnalysisTemplate[]>([])
 const templatesLoading = ref(false)
 const selectedTemplateId = ref('')
+const batchFiles = ref<File[]>([])
+const batchImport = ref<BatchImport | null>(null)
+const batchLoading = ref(false)
+let batchTimer: ReturnType<typeof setInterval> | null = null
 const assignmentDraft = ref<Record<string, string>>({})
 const initializing = ref(true)
 const searchKeyword = ref('')
@@ -44,6 +49,9 @@ const canProcess = computed(() => Boolean(selectedTemplate.value))
 const isProcessing = computed(() =>
   ['uploading', 'ocr', 'analyzing'].includes(processingStep.value),
 )
+function batchStatusLabel(status: string) { return ({ queued: '排队中', running: '处理中', completed: '已完成', partial: '部分失败', failed: '失败', cancelled: '已取消' } as Record<string, string>)[status] || status }
+function batchItemStatusLabel(status: string) { return ({ queued: '排队中', ocr_processing: 'OCR中', ocr_done: '待分析', analyzing: '分析中', done: '已完成', error: '失败' } as Record<string, string>)[status] || status }
+function selectBatchFiles() { batchFileInputRef.value?.click() }
 const emptyText = computed(() => {
   if (activeSearchKeyword.value) return `没有找到包含“${activeSearchKeyword.value}”的合同`
   if (selectedTemplateId.value === UNASSIGNED) return '暂无未归类合同'
@@ -87,12 +95,19 @@ onMounted(async () => {
       templates.value.find((item) => item.is_default)?.id ||
       templates.value[0]?.id ||
       ALL_TEMPLATES
+    const recentBatches = await listBatchImports({ page: 1, page_size: 1 })
+    if (recentBatches.items[0]) {
+      batchImport.value = recentBatches.items[0]
+      if (['queued', 'running'].includes(batchImport.value.status)) startBatchPolling()
+    }
     await refreshDocuments()
   } finally {
     initializing.value = false
     templatesLoading.value = false
   }
 })
+
+onBeforeUnmount(() => { if (batchTimer) clearInterval(batchTimer) })
 
 watch(selectedTemplateId, async (value, previous) => {
   if (!value || value === previous) return
@@ -111,6 +126,63 @@ function selectFile() {
 function onFileChange(event: Event) {
   const input = event.target as HTMLInputElement
   if (input.files?.length) processFile(input.files[0])
+}
+
+function onBatchFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  batchFiles.value = Array.from(input.files || [])
+  input.value = ''
+}
+
+async function submitBatchImport() {
+  if (!canProcess.value) {
+    ElMessage.warning('请先选择一个具体分析方案')
+    return
+  }
+  if (!batchFiles.value.length) {
+    ElMessage.warning('请先选择要导入的PDF文件')
+    return
+  }
+  const invalid = batchFiles.value.find((file) => !file.name.toLowerCase().endsWith('.pdf') || file.size > 50 * 1024 * 1024)
+  if (invalid) {
+    ElMessage.error(`文件 ${invalid.name} 不是PDF或超过50MB限制`)
+    return
+  }
+  batchLoading.value = true
+  try {
+    batchImport.value = await createBatchImport(batchFiles.value, selectedTemplateId.value)
+    batchFiles.value = []
+    startBatchPolling()
+    ElMessage.success('批量导入已排队，后台将依次完成OCR和AI分析')
+  } finally {
+    batchLoading.value = false
+  }
+}
+
+function startBatchPolling() {
+  if (batchTimer) clearInterval(batchTimer)
+  batchTimer = setInterval(async () => {
+    if (!batchImport.value) return
+    const current = await getBatchImport(batchImport.value.id)
+    batchImport.value = current
+    if (['completed', 'partial', 'failed', 'cancelled'].includes(current.status)) {
+      clearInterval(batchTimer!)
+      batchTimer = null
+      await refreshDocuments()
+    }
+  }, 3000)
+}
+
+async function retryBatchItemAction(itemId: string) {
+  if (!batchImport.value) return
+  batchImport.value = await retryBatchItem(batchImport.value.id, itemId)
+  startBatchPolling()
+}
+
+async function retryBatchFailed() {
+  if (!batchImport.value) return
+  batchImport.value = await retryFailedBatchItems(batchImport.value.id)
+  startBatchPolling()
 }
 
 function onDrop(event: DragEvent) {
@@ -270,6 +342,13 @@ function formatDate(value: string | null) {
         <p class="upload-hint">支持 PDF 格式，最大 50MB</p>
       </div>
 
+      <div class="batch-toolbar">
+        <input ref="batchFileInputRef" type="file" accept=".pdf" multiple hidden @change="onBatchFileChange" />
+        <el-button :disabled="!canProcess" @click="selectBatchFiles">选择多个PDF</el-button>
+        <span class="batch-selection">{{ batchFiles.length ? `已选择 ${batchFiles.length} 个文件` : '可一次选择多个PDF，后台逐个OCR并分析' }}</span>
+        <el-button v-if="batchFiles.length" type="primary" :loading="batchLoading" @click="submitBatchImport">开始批量处理</el-button>
+      </div>
+
       <div v-if="processingStep !== 'idle'" class="progress-section">
         <el-steps :active="activeStep" finish-status="success" align-center>
           <el-step title="上传" description="文件上传" />
@@ -283,6 +362,21 @@ function formatDate(value: string | null) {
           :stroke-width="8"
           style="margin-top: 16px"
         />
+      </div>
+
+      <div v-if="batchImport" class="batch-progress-section">
+        <div class="batch-heading">
+          <div><strong>批次进度</strong><span class="muted">{{ batchImport.completed_count }}/{{ batchImport.total_count }} 已完成<span v-if="batchImport.failed_count">，{{ batchImport.failed_count }} 个失败</span></span></div>
+          <div class="batch-actions"><el-tag :type="batchImport.status === 'completed' ? 'success' : batchImport.status === 'failed' || batchImport.status === 'partial' ? 'danger' : 'warning'">{{ batchStatusLabel(batchImport.status) }}</el-tag><el-button v-if="batchImport.failed_count" text type="primary" @click="retryBatchFailed">重试失败项</el-button></div>
+        </div>
+        <el-progress :percentage="batchImport.progress" :status="batchImport.status === 'completed' ? 'success' : batchImport.status === 'failed' ? 'exception' : undefined" />
+        <el-table :data="batchImport.items" size="small" class="batch-table">
+          <el-table-column prop="original_filename" label="文件名" min-width="220" />
+          <el-table-column label="阶段" width="110"><template #default="{ row }">{{ row.stage === 'ocr' ? 'OCR识别' : 'AI分析' }}</template></el-table-column>
+          <el-table-column label="进度" width="150"><template #default="{ row }"><el-progress :percentage="row.progress" :status="row.status === 'error' ? 'exception' : row.status === 'done' ? 'success' : undefined" /></template></el-table-column>
+          <el-table-column label="状态" width="120"><template #default="{ row }">{{ batchItemStatusLabel(row.status) }}</template></el-table-column>
+          <el-table-column label="错误/操作" min-width="220"><template #default="{ row }"><span v-if="row.error_message" class="danger">{{ row.error_message }}</span><el-button v-if="row.status === 'error' && row.document_id" text type="primary" @click="retryBatchItemAction(row.id)">重试</el-button><span v-if="!row.error_message && row.status !== 'error'" class="muted">-</span></template></el-table-column>
+        </el-table>
       </div>
     </el-card>
 
@@ -390,6 +484,15 @@ function formatDate(value: string | null) {
 .upload-icon { margin-bottom: 16px; }
 .upload-text { font-size: 16px; color: #606266; margin-bottom: 8px; }
 .upload-hint { font-size: 13px; color: #999; }
+.batch-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.batch-selection { color: #6b7280; font-size: 13px; }
+.batch-progress-section { margin-top: 20px; padding-top: 18px; border-top: 1px solid #ebeef5; }
+.batch-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 12px; }
+.batch-heading > div:first-child { display: flex; align-items: center; gap: 12px; }
+.batch-actions { display: flex; align-items: center; gap: 10px; }
+.batch-table { margin-top: 14px; }
+.muted { color: #909399; font-size: 12px; }
+.danger { color: #f56c6c; }
 .progress-section { margin-top: 24px; padding-top: 24px; border-top: 1px solid #ebeef5; }
 .card-header { display: flex; align-items: center; justify-content: space-between; }
 .card-title { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
@@ -401,5 +504,7 @@ function formatDate(value: string | null) {
   .card-header { align-items: stretch; flex-direction: column; gap: 12px; }
   .list-tools { width: 100%; flex-wrap: wrap; }
   .global-search { min-width: 0; width: auto; flex: 1 1 180px; }
+  .batch-heading { align-items: flex-start; flex-direction: column; }
+  .batch-heading > div:first-child { align-items: flex-start; flex-direction: column; gap: 4px; }
 }
 </style>

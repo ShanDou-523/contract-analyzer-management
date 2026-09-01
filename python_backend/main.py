@@ -20,6 +20,7 @@ from routers.analysis import router as analysis_router
 from routers.analysis_templates import router as analysis_templates_router
 from routers.auth import router as auth_router
 from routers.background_jobs import router as background_jobs_router
+from routers.batch_imports import router as batch_imports_router
 from routers.contracts import router as contracts_router
 from routers.documents import router as documents_router
 from routers.export import router as export_router
@@ -86,6 +87,7 @@ app.include_router(export_router)
 app.include_router(analysis_templates_router)
 app.include_router(auth_router)
 app.include_router(background_jobs_router)
+app.include_router(batch_imports_router)
 app.include_router(contracts_router)
 app.include_router(fulfillment_router)
 app.include_router(notifications_router)

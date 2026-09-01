@@ -14,6 +14,8 @@ import database
 from core.security import as_utc
 from models.contract import (
     BackgroundJob,
+    BatchImport,
+    BatchImportItem,
     Notification,
     NotificationDelivery,
     Organization,
@@ -28,6 +30,8 @@ from services.background_job_service import (
     mark_job_succeeded,
     recover_stale_jobs,
 )
+from services.batch_processing_service import run_analysis as run_batch_analysis
+from services.batch_processing_service import run_ocr as run_batch_ocr
 from services.notification_provider import (
     NotificationProvider,
     default_provider_registry,
@@ -41,11 +45,15 @@ JOB_RISK_REMINDER_SCAN = "risk_reminder_scan"
 JOB_NOTIFICATION_DISPATCH = "notification_dispatch"
 JOB_NOTIFICATION_DELIVERY = "notification_delivery"
 JOB_RISK_SNAPSHOT = "risk_report_snapshot"
+JOB_BATCH_OCR = "batch_document_ocr"
+JOB_BATCH_ANALYSIS = "batch_document_analysis"
 SUPPORTED_JOB_TYPES = {
     JOB_RISK_REMINDER_SCAN,
     JOB_NOTIFICATION_DISPATCH,
     JOB_NOTIFICATION_DELIVERY,
     JOB_RISK_SNAPSHOT,
+    JOB_BATCH_OCR,
+    JOB_BATCH_ANALYSIS,
 }
 
 
@@ -54,10 +62,18 @@ def now_utc() -> datetime:
 
 
 class JobExecutionError(RuntimeError):
-    def __init__(self, code: str, message: str, *, delivery_id: str | None = None):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        delivery_id: str | None = None,
+        batch_item_id: str | None = None,
+    ):
         super().__init__(message)
         self.code = code
         self.delivery_id = delivery_id
+        self.batch_item_id = batch_item_id
 
 
 def _ensure_delivery_job(
@@ -322,6 +338,104 @@ def _execute_risk_snapshot(db: Session, job: BackgroundJob, current: datetime) -
     }
 
 
+def _update_batch_summary(db: Session, item: BatchImport, current: datetime) -> None:
+    items = db.query(BatchImportItem).filter(BatchImportItem.batch_id == item.id).all()
+    total = len(items)
+    completed = sum(row.status == "done" for row in items)
+    failed = sum(row.status == "error" for row in items)
+    active = total - completed - failed
+    item.total_count = total
+    item.completed_count = completed
+    item.failed_count = failed
+    item.progress = round(sum(row.progress for row in items) / total) if total else 100
+    if active:
+        item.status = "queued" if all(row.status == "queued" for row in items) else "running"
+        item.started_at = item.started_at or current
+        item.finished_at = None
+    elif failed:
+        item.status = "partial" if completed else "failed"
+        item.finished_at = item.finished_at or current
+    else:
+        item.status = "completed"
+        item.started_at = item.started_at or current
+        item.finished_at = item.finished_at or current
+    item.updated_at = current
+    db.flush()
+
+
+def _execute_batch_ocr(db: Session, job: BackgroundJob, current: datetime) -> dict:
+    payload = decode_json(job.payload_json)
+    item_id = str(payload.get("batch_item_id") or "")
+    item = (
+        db.query(BatchImportItem)
+        .filter(BatchImportItem.id == item_id, BatchImportItem.organization_id == job.organization_id)
+        .one_or_none()
+    )
+    if item is None or item.document_id is None:
+        raise JobExecutionError("BATCH_ITEM_NOT_FOUND", "批量导入文件不存在", batch_item_id=item_id)
+    from models.document import Document
+
+    document = db.get(Document, item.document_id)
+    if document is None or document.organization_id != job.organization_id:
+        raise JobExecutionError("BATCH_DOCUMENT_NOT_FOUND", "批量导入文档不存在", batch_item_id=item.id)
+    if document.status in {"ocr_done", "done"} and document.ocr_text:
+        item.status, item.stage, item.progress = "ocr_done", "analysis", 50
+    else:
+        item.status, item.stage, item.progress = "ocr_processing", "ocr", 20
+        _update_batch_summary(db, db.get(BatchImport, item.batch_id), current)
+        try:
+            run_batch_ocr(db, document)
+        except Exception as exc:
+            raise JobExecutionError("OCR_FAILED", str(exc), batch_item_id=item.id) from exc
+        item.status, item.stage, item.progress = "ocr_done", "analysis", 50
+    analysis_job = enqueue_job(
+        db,
+        organization_id=job.organization_id,
+        job_type=JOB_BATCH_ANALYSIS,
+        dedupe_key=f"batch:{JOB_BATCH_ANALYSIS}:{item.id}:{item.retry_count}",
+        payload={"batch_item_id": item.id, "document_id": item.document_id},
+        requested_by=job.requested_by,
+        priority=10,
+    )
+    item.analysis_job_id = analysis_job.job.id
+    batch = db.get(BatchImport, item.batch_id)
+    _update_batch_summary(db, batch, current)
+    return {"batch_item_id": item.id, "analysis_job_id": analysis_job.job.id, "page_count": document.page_count}
+
+
+def _execute_batch_analysis(db: Session, job: BackgroundJob, current: datetime) -> dict:
+    payload = decode_json(job.payload_json)
+    item_id = str(payload.get("batch_item_id") or "")
+    item = (
+        db.query(BatchImportItem)
+        .filter(BatchImportItem.id == item_id, BatchImportItem.organization_id == job.organization_id)
+        .one_or_none()
+    )
+    if item is None or item.document_id is None:
+        raise JobExecutionError("BATCH_ITEM_NOT_FOUND", "批量导入文件不存在", batch_item_id=item_id)
+    from models.document import Document
+
+    document = db.get(Document, item.document_id)
+    if document is None or document.organization_id != job.organization_id:
+        raise JobExecutionError("BATCH_DOCUMENT_NOT_FOUND", "批量导入文档不存在", batch_item_id=item.id)
+    item.status, item.stage, item.progress = "analyzing", "analysis", 65
+    batch = db.get(BatchImport, item.batch_id)
+    _update_batch_summary(db, batch, current)
+    try:
+        results = run_batch_analysis(
+            db,
+            document,
+            organization_id=job.organization_id,
+            user_id=job.requested_by or batch.created_by,
+            template_id=batch.template_id,
+        )
+    except Exception as exc:
+        raise JobExecutionError("ANALYSIS_FAILED", str(exc), batch_item_id=item.id) from exc
+    item.status, item.stage, item.progress = "done", "analysis", 100
+    _update_batch_summary(db, batch, current)
+    return {"batch_item_id": item.id, "result_count": len(results)}
+
+
 def execute_job(
     db: Session,
     job: BackgroundJob,
@@ -338,6 +452,10 @@ def execute_job(
         return _execute_notification_delivery(db, job, providers, current)
     if job.job_type == JOB_RISK_SNAPSHOT:
         return _execute_risk_snapshot(db, job, current)
+    if job.job_type == JOB_BATCH_OCR:
+        return _execute_batch_ocr(db, job, current)
+    if job.job_type == JOB_BATCH_ANALYSIS:
+        return _execute_batch_analysis(db, job, current)
     raise JobExecutionError("UNSUPPORTED_JOB_TYPE", f"不支持的后台任务类型：{job.job_type}")
 
 
@@ -357,6 +475,39 @@ def _sync_delivery_failure(db: Session, error: JobExecutionError, job: Backgroun
     delivery.last_error = str(error)[:5000]
     delivery.status = "failed" if job.status == "failed" else "queued"
     delivery.next_retry_at = None if job.status == "failed" else job.available_at
+
+
+def _sync_batch_failure(db: Session, error: JobExecutionError, job: BackgroundJob) -> None:
+    if not error.batch_item_id:
+        return
+    item = (
+        db.query(BatchImportItem)
+        .filter(
+            BatchImportItem.id == error.batch_item_id,
+            BatchImportItem.organization_id == job.organization_id,
+        )
+        .one_or_none()
+    )
+    if item is None:
+        return
+    item.error_code = error.code
+    item.error_message = str(error)[:5000]
+    item.status = "error" if job.status == "failed" else "queued"
+    if job.status == "failed":
+        item.progress = max(0, item.progress)
+        from models.document import Document
+
+        document = db.get(Document, item.document_id) if item.document_id else None
+        if document:
+            if job.job_type == JOB_BATCH_OCR:
+                document.status = "error"
+                document.error_message = str(error)[:5000]
+            elif job.job_type == JOB_BATCH_ANALYSIS:
+                document.status = "ocr_done"
+                document.error_message = str(error)[:5000]
+    batch = db.get(BatchImport, item.batch_id)
+    if batch:
+        _update_batch_summary(db, batch, as_utc(job.updated_at) or now_utc())
 
 
 def process_one_job(
@@ -399,6 +550,7 @@ def process_one_job(
                 now=current,
             )
             _sync_delivery_failure(db, exc, job)
+            _sync_batch_failure(db, exc, job)
             record_audit(
                 db,
                 "background_job.retry_scheduled" if job.status == "queued" else "background_job.failed",
@@ -412,6 +564,7 @@ def process_one_job(
         except Exception as exc:
             db.rollback()
             job = db.get(BackgroundJob, job.id)
+            payload = decode_json(job.payload_json) if job else {}
             mark_job_failed(
                 db,
                 job,
@@ -419,6 +572,16 @@ def process_one_job(
                 error_message=str(exc),
                 now=current,
             )
+            if job and payload.get("batch_item_id"):
+                _sync_batch_failure(
+                    db,
+                    JobExecutionError(
+                        "JOB_EXECUTION_FAILED",
+                        str(exc),
+                        batch_item_id=str(payload["batch_item_id"]),
+                    ),
+                    job,
+                )
             db.commit()
             logger.exception("Background job %s failed", job.id)
         db.refresh(job)
